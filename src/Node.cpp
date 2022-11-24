@@ -1,13 +1,19 @@
 #include "../include/Node.h"
+#include "../include/Utils.h"
 #include <iostream>
 #include <cstring>
+#include <sstream>
+
+using namespace std;
+
 
 Node::Node(NODE_TYPE type) {
     this->type = type;
-    // 初始化
+    // 初始化，TODO 在文件末尾为该NODE分配一个 4096 字节的区域
+//    this->self =
     this->keyNums = 0;
-    this->father = nullptr;
-    this->rightBrother = nullptr;
+    this->father = INVALID;
+    this->rightBrother = INVALID;
     memset(children, INVALID, MAX_CHILDREN);
     memset(this->keys, INVALID, MAX_KEY);
     memset(this->values, INVALID, MAX_KEY);
@@ -45,6 +51,9 @@ bool Node::leafNodeInsert(key_t key, Record value) {
     keys[i] = key;
     values[i] = value;
     keyNums++;
+
+    // UPDATE: 直接序列化存入
+    utils::writeNode(this->self,this);
     return true;
 }
 
@@ -222,7 +231,7 @@ void Node::printNode() {
         for (int i = 0; i < keyNums; i++) {
             std::cout << "(" << "index: " << keys[i];
             std::cout << " value:";
-            for(long long j : values[i]) {
+            for (long long j: values[i]) {
                 std::cout << " " << j;
             }
             std::cout << ")";
@@ -237,4 +246,91 @@ void Node::printNode() {
         }
         std::cout << "]" << std::endl;
     }
+}
+
+/**
+ * |type==LEAFNODE    | keyNums | self | father | rightBrother | keys(array) | values(array(vector)) |
+ * |type==INTERNALNODE| keyNums | self | father | rightBrother | keys(array) | children(array) |
+ */
+void Node::serialize(char *buffer) {
+    stringstream ss;
+
+    ss << '|' << type << '|' << keyNums << '|' << self << '|' << father << '|' << rightBrother << '|';
+
+    for (int i = 0; i < keyNums; i++) {
+        if (i == keyNums - 1) {
+            ss << keys[i] << '|';
+
+        } else {
+            ss << keys[i] << ',';
+        }
+    }
+
+    if (type == LEAF_NODE) {
+        int valueNums = keyNums;
+        for (int i = 0; i < valueNums; i++) {
+            for (int j = 0; j < values[i].size(); j++) {
+                if (j == values[i].size() - 1) {
+                    ss << values[i][j];
+                } else {
+                    ss << values[i][j] << '#';
+                }
+            }
+            if (i == valueNums - 1) {
+                ss << '|';
+            } else {
+                ss << ',';
+            }
+        }
+
+    } else if (type == INTERNAL_NODE) {
+        int childrenNums = keyNums + 1;
+        for (int i = 0; i < childrenNums; i++) {
+            if (i == childrenNums - 1) {
+                ss << children[i] << '|';
+
+            } else {
+                ss << children[i] << ',';
+            }
+        }
+    }
+    ss >> buffer;
+}
+
+
+Node *Node::deSerialize(char *buffer) {
+    vector<string> nodeDataVector = utils::stringToVector(buffer,'|');
+    NODE_TYPE d_type = stoi(nodeDataVector[0]) == 1 ? INTERNAL_NODE : LEAF_NODE;
+    int d_keyNums = stoi(nodeDataVector[1]);
+    off_t d_self = stoll(nodeDataVector[2]);
+    off_t d_father = stoll(nodeDataVector[3]);
+    off_t d_rightBrother = stoll(nodeDataVector[4]);
+
+    Node *node = new Node(d_type);
+    node->keyNums = d_keyNums;
+    node->self = d_self;
+    node->father = d_father;
+    node->rightBrother =d_rightBrother;
+
+    vector<string> keysDataVector = utils::stringToVector(nodeDataVector[5],',');
+    for(int i = 0; i <d_keyNums;i++){
+        node->keys[i] = stoi(keysDataVector[i]);
+    }
+
+    if(d_type == LEAF_NODE){
+        vector<string> valuesDataVector = utils::stringToVector(nodeDataVector[6],',');
+        for(int i=0;i<d_keyNums;i++) {
+            vector<string> recordDataVector = utils::stringToVector(valuesDataVector[i],'#');
+            for(string item:recordDataVector){
+                node->values[i].push_back(stoll(item));
+            }
+        }
+    }else{
+        vector<string> childrenDataVector = utils::stringToVector(nodeDataVector[6],',');
+        int childrenNums = d_keyNums + 1;
+        for(int i = 0; i <childrenNums;i++){
+            node->keys[i] = stoi(childrenDataVector[i]);
+        }
+    }
+    return node;
 }

@@ -1,8 +1,13 @@
 #include "../include/BPT.h"
+#include "../include/Utils.h"
 #include <iostream>
 
 BPT::BPT() {
-    this->root = new Node(LEAF_NODE);
+    // TODO 首次运行没数据，需要特殊处理。
+    BPTMeta meta = utils::readBPTMeta();
+    this->meta.root = meta.root;
+    this->meta.nodeNums = meta.nodeNums;
+    this->rootNode = utils::readNode(this->meta.root);
 }
 
 BPT::~BPT() = default;
@@ -27,6 +32,12 @@ bool BPT::insert(int key, Record value) {
 
     // 2. 定位理论应该插入的叶子节点
     Node *pLeafNode = locateLeafNode(key);
+
+    // 整棵树是空的，创建第一个节点
+    if(pLeafNode == NULL){
+        pLeafNode = new Node(LEAF_NODE);
+        utils::writeNode(BPT_META_SIZE+this->meta.nodeNums*NODE_SIZE, pLeafNode);
+    }
 
     // 情况（1）：叶子节点未满，直接插入
     if (pLeafNode->keyNums < MAX_KEY) {
@@ -140,7 +151,7 @@ bool BPT::InsertInternalNode(Node *pFatherNode, key_t key, Node *pRightSonNode) 
  */
 Node *BPT::locateLeafNode(int key) {
     int i;
-    Node *pNode = root;
+    Node *pNode = this->rootNode;
     while (pNode != NULL) {
         // 如果是叶子节点，则终止循环
         if (pNode->type == LEAF_NODE) {
@@ -152,7 +163,7 @@ Node *BPT::locateLeafNode(int key) {
                 break;
             }
         }
-        pNode = pNode->children[i];
+        pNode = utils::readNode(pNode->children[i]);
     }
 
     return pNode;
@@ -170,4 +181,18 @@ void BPT::printTree(Node *pNode) {
     for (int i = 0; i < pNode->keyNums + 1; i++) {
         printTree(pNode->children[i]);
     }
+}
+
+void BPT::serialize(char* buffer){
+    stringstream ss;
+    ss << '|' << this->meta.nodeNums << '|' << this->meta.root << '|';
+    ss >> buffer;
+}
+
+BPTMeta BPT::deSerialize(char* buffer){
+    vector<string> BPTMetaVector = utils::stringToVector(buffer,'|');
+    BPTMeta d_meta;
+    d_meta.nodeNums =stoll(BPTMetaVector[0]);
+    d_meta.root =stoll(BPTMetaVector[1]);
+    return d_meta;
 }

@@ -6,6 +6,8 @@
 #define MAX_CHILDREN ORDER                // 内部节点至多包含 m 个孩子
 #define INVALID 0
 #include <vector>
+#include <cstdint>
+#include <fcntl.h>
 using namespace std;
 typedef vector<int64_t> Record;
 typedef int key_t;
@@ -32,14 +34,21 @@ public:
 
     void printNode();
 
+    void serialize(char* buffer);
+
+    static Node* deSerialize(char* buffer);
 
 public:
     NODE_TYPE type;
     int keyNums;
+    off_t self;
+    off_t father;
+    off_t rightBrother;
     key_t keys[MAX_KEY];
-    Node *children[MAX_CHILDREN];
-    Node *rightBrother;
-    Node *father;
+    off_t children[MAX_CHILDREN];
+//    Node *children[MAX_CHILDREN];
+//    Node *rightBrother;
+//    Node *father;
     Record values[MAX_KEY];  // key 的数量和 value 的数量相同
 
 };

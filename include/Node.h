@@ -6,6 +6,7 @@
 #define MAX_CHILDREN ORDER                // 内部节点至多包含 m 个孩子
 #define INVALID 0
 #include <vector>
+#include <stdint.h>
 using namespace std;
 typedef vector<int64_t> Record;
 typedef int key_t;

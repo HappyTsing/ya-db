@@ -28,6 +28,7 @@ private:
     Node *createNode(NODE_TYPE type);
 
     bool flush(initializer_list<Node *> nodeList);
+    bool deleteObj(initializer_list<Node *> nodeList);
 
     bool InsertInternalNode(Node *pInternalNode, Key_t key, Node *pRightSon);
 

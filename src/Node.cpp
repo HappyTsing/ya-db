@@ -150,6 +150,7 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
 
     // 情况（1）upperKey = key
     if ((keys[ORDER / 2 - 1] < key) && (key < keys[ORDER / 2])) {
+        std::cout << "情况（2.2）(1)upperKey = key" << std::endl;
         // key 移动到新节点
         // 例如 5 阶的树，MAX_KEY = 4，把后 2 个key 移到新节点
         // 例如 6 阶的树，MAX_KEY = 5，把后 2 个key，移到新节点
@@ -173,12 +174,14 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
 //            children[i]->father = pNewInternalNode;  // 重新设置子节点的父亲
 //            children[i] = nullptr;
             pchildren->serialize(); //todo 在里面刷新？
+            delete pchildren;
             j++;
         }
         pNewInternalNode->keyNums = MAX_KEY - ORDER / 2;
         keyNums = ORDER / 2;
         return key;
     }
+    std::cout << "情况（2.2）(2)(3)upperKey != key" << std::endl;
     // 处理情况（2）（3），通过 position 可以巧妙的一起处理，而不用分开处理。
     // position 是数组下标，从0开始。
     int position;
@@ -189,7 +192,7 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
         position = ORDER / 2 - 1;
     } else { // key > keys[ORDER/2]
         // key 在右节点
-        // 例如 5 阶的树，MAX_KEY = 4，把后 1 个key 移到新节点
+        // 例如 5 阶的树，MAX_KEY = 4，把后 1 个key 移到新节点, position = 2
         // 例如 6 阶的树，MAX_KEY = 5，把后 1 个key 移到新节点
         position = ORDER / 2;
     }
@@ -206,6 +209,8 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
     j = 0;
     for (int i = position + 1; i < MAX_CHILDREN; i++) {
         pNewInternalNode->children[j] = children[i];
+
+
         Node *pchildren = Node::deSerialize(children[i]);
         pchildren->father = pNewInternalNode->self;
 //            children[i]->father = pNewInternalNode;  // 重新设置子节点的父亲
@@ -213,6 +218,7 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
 //        children[i]->father = pNewInternalNode;
 //        children[i] = nullptr;
         pchildren->serialize(); //todo 在里面刷新？
+        delete pchildren;
         j++;
     }
     pNewInternalNode->keyNums = MAX_KEY - position - 1;
@@ -257,9 +263,8 @@ void Node::serialize() {
     int fd = open("../my.ibd", O_RDWR | O_CREAT, 0664);
     if (-1 == fd) {
         perror("open");
-        printf("errno = %d\n", errno);
+        printf("NODE errno = %d\n", errno);
     }
-
     if (-1 == lseek(fd, this->self, SEEK_SET)) {
         perror("lseek");
     }
@@ -311,6 +316,7 @@ void Node::serialize() {
 //    cout << "unUsedNodeSpaceSize " << unUsedNodeSpaceSize << endl;
     char *fillBuffer = (char *) malloc(unUsedNodeSpaceSize);
     write(fd, fillBuffer, unUsedNodeSpaceSize);
+    free(fillBuffer);
 
     if (-1 == close(fd)) {
         perror("close");
@@ -366,7 +372,9 @@ Node *Node::deSerialize(off64_t offset) {
             }
         }
     }
-
+    if (-1 == close(fd)) {
+        perror("close");
+    }
     return node;
 }
 

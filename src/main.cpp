@@ -20,30 +20,36 @@ void testBTP(){
     std::cout << "Main:testBTP: 当前节点总数：" << bpt->nodeNums << std::endl;
     std::cout << "Main:testBTP: 新节点偏移量：" << bpt->nextNew << std::endl;
 
-//    srand((unsigned) time(NULL)); //这是一个种子，如果不要随机功能，请把此句话注释掉
+    srand((unsigned) time(NULL)); //这是一个种子，如果不要随机功能，请把此句话注释掉
 //
-    for (int i = 1; i <= 15; i++) {
+    for (int i = 1; i <= 1000000; i++) {
         std::cout << "======================================" << std::endl;
-//        int x = rand() % 2000 + 1;
+        int x = rand() % 5000000 + 1;
         std::cout << "Main:testBTP: 插入第：" << i << "个数据" << std::endl;
-        int x =i;
+//        int x = i;
         Record record;
+        // todo 目前仅支持4条
         record.push_back(x);
         record.push_back(x);
         record.push_back(x);
         record.push_back(x);
+//        record.push_back(x);
+//        record.push_back(x);
+//        record.push_back(x);
+//        record.push_back(x);
+//        record.push_back(x);
+//        record.push_back(x);
         bpt->insert(x, record);
 
-        std::cout << "**************打印当前树*************" << std::endl;
-        bpt->printTree(Node::deSerialize(bpt->root));
-
+//        std::cout << "**************打印当前树*************" << std::endl;
+//        bpt->printTree(Node::deSerialize(bpt->root));
     }
-//    std::cout << "======================================" << std::endl;
-//    std::cout << "Main:testBTP: 根节点偏移量：" << bpt->root << std::endl;
-//    std::cout << "Main:testBTP: 当前节点总数：" << bpt->nodeNums << std::endl;
-//    std::cout << "Main:testBTP: 新节点偏移量：" << bpt->nextNew << std::endl;
-//
-//    bpt->printTree(Node::deSerialize(bpt->root));
+    std::cout << "======================================" << std::endl;
+    std::cout << "Main:testBTP: 根节点偏移量：" << bpt->root << std::endl;
+    std::cout << "Main:testBTP: 当前节点总数：" << bpt->nodeNums << std::endl;
+    std::cout << "Main:testBTP: 新节点偏移量：" << bpt->nextNew << std::endl;
+
+    bpt->printTree(Node::deSerialize(bpt->root));
 }
 
 //void testTable(){

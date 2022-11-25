@@ -1,7 +1,7 @@
 #ifndef YASQL_NODE_H
 #define YASQL_NODE_H
 
-#define ORDER 5                           // b+ 树的阶数 m
+#define ORDER 15                           // b+ 树的阶数 m
 #define MAX_KEY ORDER - 1                   // 关键字最多有 m - 1 个
 #define MAX_CHILDREN ORDER                // 内部节点至多包含 m 个孩子
 #define MAX_VALUE ORDER - 1                //  叶子节点最多有 m - 1个数据

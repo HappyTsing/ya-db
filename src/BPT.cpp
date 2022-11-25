@@ -71,10 +71,12 @@ bool BPT::insert(int key, Record value) {
             rootNode = pNewRootNode;
             // 更新文件
             flush({pOldLeafNode, pNewLeafNode, pNewRootNode});
+            deleteObj({pOldLeafNode, pNewLeafNode, pNewRootNode});
             return true;
         } else {
             Node *pFatherInternalNode = Node::deSerialize(FatherInternalNodeOffset);
             flush({pOldLeafNode});
+            deleteObj({pOldLeafNode});
             std::cout << "情况（2.1）（2.2）抽象出递归函数处理。" << std::endl;
             // 情况（2.1）（2.2）抽象出递归函数处理。
             InsertInternalNode(pFatherInternalNode, splitKey, pNewLeafNode);
@@ -101,11 +103,14 @@ bool BPT::InsertInternalNode(Node *pFatherNode, Key_t key, Node *pRightSonNode) 
     if (pFatherNode->keyNums < MAX_KEY) {
         std::cout << "情况（2.2）父节点未满，直接插入；" << std::endl;
         pFatherNode->internalNodeInsert(key, pRightSonNode);
+//        rootNode = pFatherNode;
         flush({pFatherNode, pRightSonNode});
+        deleteObj({pFatherNode, pRightSonNode});
         return true;
     }
         // 情况（2.3）父节点已满，分裂父节点
     else {
+        std::cout << "情况（2.3）父节点已满，分裂父节点" << std::endl;
         Node *pNewInternalNode = createNode(INTERNAL_NODE);
         Node *pOldInternalNode = pFatherNode; // 命名统一
         // 分裂父节点节点进行分裂，upperKey是新节点的 keys[0]
@@ -136,13 +141,14 @@ bool BPT::InsertInternalNode(Node *pFatherNode, Key_t key, Node *pRightSonNode) 
             pNewInternalNode->father = pNewRootNode->self;
             pNewRootNode->keyNums = 1;
             root = pNewRootNode->self;
-            rootNode = pNewRootNode;
-            flush({pOldInternalNode, pNewInternalNode, pNewRootNode});
+//            rootNode = pNewRootNode;
+            flush({pOldInternalNode, pNewInternalNode, pNewRootNode,pRightSonNode});
+            deleteObj({pOldInternalNode, pNewInternalNode, pNewRootNode,pRightSonNode});
             return true;
         } else {
             // 祖父节点存在，调用该递归函数，将分裂的新内部节点插入祖父节点中。
             Node *pGrandFatherNode = Node::deSerialize(pGrandFatherNodeOffset);
-            flush({pOldInternalNode});
+            flush({pOldInternalNode,pNewInternalNode,pRightSonNode});
             return InsertInternalNode(pGrandFatherNode, upperKey, pNewInternalNode);
         }
 
@@ -156,7 +162,11 @@ bool BPT::InsertInternalNode(Node *pFatherNode, Key_t key, Node *pRightSonNode) 
  */
 Node *BPT::locateLeafNode(Key_t key) {
     int i;
-    // 重新获取rootNode
+
+    off64_t pNodeOffset = this->root;
+
+
+    // 重新获取rootNode，由于传入的是新的
     Node *pNode = this->rootNode;
     while (pNode != NULL) {
         // 如果是叶子节点，则终止循环
@@ -170,11 +180,13 @@ Node *BPT::locateLeafNode(Key_t key) {
                 break;
             }
         }
-
-        pNode = Node::deSerialize(pNode->children[i]);
+        off64_t a = pNode->children[i];
+        delete pNode;
+        pNode = Node::deSerialize(a);
     }
 
     return pNode;
+
 }
 
 /**
@@ -230,6 +242,7 @@ void BPT::serialize() {
     int64_t unUsedNodeSpaceSize = 4096 - 2 * sizeof(off64_t) - sizeof(int64_t);
     char *fillBuffer = (char *) malloc(unUsedNodeSpaceSize);
     write(fd, fillBuffer, unUsedNodeSpaceSize);
+    free(fillBuffer);
 
     if (-1 == close(fd)) {
         perror("close");
@@ -262,7 +275,11 @@ BPT *BPT::deSerialize() {
                 perror("close");
             }
             bpt->rootNode = Node::deSerialize(bpt->root);
+            if (-1 == close(fd)) {
+                perror("close");
+            }
             return bpt;
+
         }
     }else{
         std::cout << "文件不存在，创建根节点" << std::endl;
@@ -276,6 +293,7 @@ BPT *BPT::deSerialize() {
         bpt->rootNode = genesisNode;
         return bpt;
     }
+
 }
 
 bool BPT::flush(initializer_list<Node *> nodeList) {
@@ -283,4 +301,12 @@ bool BPT::flush(initializer_list<Node *> nodeList) {
         node->serialize();
     }
     this->serialize();
+    this->rootNode = Node::deSerialize(this->root);
 }
+
+bool BPT::deleteObj(initializer_list<Node *> nodeList) {
+    for (Node *node: nodeList) {
+        delete node;
+    }
+}
+

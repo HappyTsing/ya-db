@@ -18,7 +18,7 @@ public:
     int recordNums_indexId;
 public:
     // 默认列为 int64_t 类型
-    Table(string tableName,initializer_list<string> columnNames);
+    Table(string tableName, initializer_list<string> columnNames);
     virtual ~Table();
     bool createIndex(string columnName);                 // 创建索引，首先判断索引是否存在
     bool insertRecord(Record record); // 判断输入的列的长度是否等于 columnNums；

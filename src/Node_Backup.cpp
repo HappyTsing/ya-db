@@ -1,12 +1,20 @@
 #include "../include/Node.h"
+#include "../include/Utils.h"
+#include <iostream>
+#include <cstring>
+#include <sstream>
+
+using namespace std;
 
 
-Node::Node(NODE_TYPE type, off64_t selfOffset) {
+Node::Node(NODE_TYPE type) {
     this->type = type;
-    this->self = selfOffset;
+    // 初始化，TODO 在文件末尾为该NODE分配一个 4096 字节的区域
     this->keyNums = 0;
+    this->self = INVALID;
     this->father = INVALID;
     this->rightBrother = INVALID;
+    this->hasGrandChildren = false;
     memset(children, INVALID, MAX_CHILDREN);
     memset(this->keys, INVALID, MAX_KEY);
     memset(this->values, INVALID, MAX_KEY);
@@ -20,7 +28,7 @@ Node::~Node() = default;
  * @param value 数据
  * @return 是否插入成功
  */
-bool Node::leafNodeInsert(Key_t key, Record value) {
+bool Node::leafNodeInsert(key_t key, Record value) {
 
     // 如果叶子节点已满，直接返回失败
     if (keyNums >= MAX_KEY) {
@@ -54,7 +62,7 @@ bool Node::leafNodeInsert(Key_t key, Record value) {
  * @param pNewLeafNode 叶子节点分裂后变成两个叶子节点，其中左节点为原节点，右节点为新节点。
  * @return 新节点的keys[0]，用于方便后续插入父节点。
  */
-Key_t Node::leafNodeSplit(Node *pNewLeafNode) {
+key_t Node::leafNodeSplit(Node *pNewLeafNode) {
 
     // 如果叶子节点未满，不允许分裂，返回空指针
     if (keyNums != MAX_KEY) {
@@ -89,7 +97,7 @@ Key_t Node::leafNodeSplit(Node *pNewLeafNode) {
  * @param pNewChildNode 分裂后的新节点
  * @return 是否插入成功
  */
-bool Node::internalNodeInsert(Key_t key, Node *pNewChildNode) {
+bool Node::internalNodeInsert(key_t key, Node *pNewChildNode) {
 
     // 如果中间节点已满，直接返回失败
     if (keyNums >= MAX_KEY) {
@@ -141,7 +149,7 @@ bool Node::internalNodeInsert(Key_t key, Node *pNewChildNode) {
  *     分裂后，将key = 4的新节点，插入右侧内部节点
  * @return
  */
-Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
+key_t Node::internalNodeSplit(Node *pNewInternalNode, key_t key) {
 
     // 如果节点未满，不允许分裂，返回空指针
     if (keyNums != MAX_KEY) {
@@ -167,12 +175,8 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
         j = 1;
         for (int i = ORDER / 2 + 1; i < MAX_CHILDREN; i++) {
             pNewInternalNode->children[j] = children[i];
-            Node *pchildren = Node::deSerialize(children[i]);
-            pchildren->father = pNewInternalNode->self;
-            children[i] = INVALID;
-//            children[i]->father = pNewInternalNode;  // 重新设置子节点的父亲
-//            children[i] = nullptr;
-            pchildren->serialize(); //todo 在里面刷新？
+            children[i]->father = pNewInternalNode;  // 重新设置子节点的父亲
+            children[i] = nullptr;
             j++;
         }
         pNewInternalNode->keyNums = MAX_KEY - ORDER / 2;
@@ -193,7 +197,7 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
         // 例如 6 阶的树，MAX_KEY = 5，把后 1 个key 移到新节点
         position = ORDER / 2;
     }
-    Key_t upperKey = keys[ORDER / 2];
+    key_t upperKey = keys[ORDER / 2];
 
     int j = 0;
     for (int i = position + 1; i < MAX_KEY; i++) {
@@ -206,13 +210,8 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
     j = 0;
     for (int i = position + 1; i < MAX_CHILDREN; i++) {
         pNewInternalNode->children[j] = children[i];
-        Node *pchildren = Node::deSerialize(children[i]);
-        pchildren->father = pNewInternalNode->self;
-//            children[i]->father = pNewInternalNode;  // 重新设置子节点的父亲
-        children[i] = INVALID;
-//        children[i]->father = pNewInternalNode;
-//        children[i] = nullptr;
-        pchildren->serialize(); //todo 在里面刷新？
+        children[i]->father = pNewInternalNode;
+        children[i] = nullptr;
         j++;
     }
     pNewInternalNode->keyNums = MAX_KEY - position - 1;
@@ -253,131 +252,91 @@ void Node::printNode() {
  *
  * |type==INTERNALNODE| keyNums | self | father | keys(array)  | rightBrother  | children(array) |
  */
-void Node::serialize() {
-    int fd = open("../my.ibd", O_RDWR | O_CREAT, 0664);
-    if (-1 == fd) {
-        perror("open");
-        printf("errno = %d\n", errno);
-    }
+void Node::serialize(char *buffer) {
+    stringstream ss;
 
-    if (-1 == lseek(fd, this->self, SEEK_SET)) {
-        perror("lseek");
-    }
-    write(fd, &this->type, sizeof(NODE_TYPE));
-//    cout << "type " << sizeof(NODE_TYPE) << endl;
+    ss << '|' << type << '|' << keyNums << '|' << self << '|' << father << '|' ;
 
-    write(fd, &this->self, sizeof(off64_t));
-//    cout << "self " << sizeof(off64_t) << endl;
+    for (int i = 0; i < keyNums; i++) {
+        if (i == keyNums - 1) {
+            ss << keys[i] << '|';
 
-    write(fd, &this->keyNums, sizeof(int64_t));
-//    cout << "keyNums " << sizeof(int64_t) << endl;
-
-    write(fd, &this->father, sizeof(off64_t));
-//    cout << "father " << sizeof(off64_t) << endl;
-
-    for (int i = 0; i < this->keyNums; i++) {
-        write(fd, &this->keys[i], sizeof(Key_t));
-//        cout << "keys " << sizeof(Key_t) << endl;
-    }
-
-    int64_t unUsedNodeSpaceSize;
-    if (this->type == INTERNAL_NODE) {
-        for (int i = 0; i < this->keyNums + 1; i++) {
-            write(fd, &this->children[i], sizeof(off64_t));
-//            cout << "children " << sizeof(off64_t) << endl;
+        } else {
+            ss << keys[i] << ',';
         }
+    }
 
-        // 留出空余空间
-        unUsedNodeSpaceSize =
-                (MAX_KEY - this->keyNums) * sizeof(Key_t) + (MAX_CHILDREN - this->keyNums - 1) * sizeof(off64_t);
-    } else {
-        write(fd, &this->rightBrother, sizeof(off64_t));
-//        cout << "rightBrother " << sizeof(off64_t) << endl;
 
-//        int64_t recordSize = this->values[0].size(); // todo 此处先写死
-        int64_t recordSize = 4;
-        write(fd, &recordSize, sizeof(int64_t));
-//        cout << "recordSize " << recordSize << endl;
-
-        for (int i = 0; i < this->keyNums; i++) {
-            for (int j = 0; j < this->values[i].size(); j++) {
-                write(fd, &this->values[i][j], sizeof(off64_t));
-//                cout << sizeof(off64_t) << endl;
+    if (type == LEAF_NODE) {
+        ss << rightBrother << '|';
+        int valueNums = keyNums;
+        for (int i = 0; i < valueNums; i++) {
+            for (int j = 0; j < values[i].size(); j++) {
+                if (j == values[i].size() - 1) {
+                    ss << values[i][j];
+                } else {
+                    ss << values[i][j] << '#';
+                }
+            }
+            if (i == valueNums - 1) {
+                ss << '|';
+            } else {
+                ss << ',';
             }
         }
-        unUsedNodeSpaceSize =
-                (MAX_KEY - this->keyNums) * sizeof(Key_t) + (MAX_VALUE - this->keyNums) * recordSize * sizeof(int64_t);
-    }
-//    cout << "unUsedNodeSpaceSize " << unUsedNodeSpaceSize << endl;
-    char *fillBuffer = (char *) malloc(unUsedNodeSpaceSize);
-    write(fd, fillBuffer, unUsedNodeSpaceSize);
 
-    if (-1 == close(fd)) {
-        perror("close");
+    } else if (type == INTERNAL_NODE) {
+        ss << hasGrandChildren << '|';
+        int childrenNums = keyNums + 1;
+        for (int i = 0; i < childrenNums; i++) {
+            if (i == childrenNums - 1) {
+                ss << children[i] << '|';
+
+            } else {
+                ss << children[i] << ',';
+            }
+        }
     }
+    ss >> buffer;
 }
 
 
-Node *Node::deSerialize(off64_t offset) {
-    if(offset == INVALID){
-        return NULL;
+Node *Node::deSerialize(char *buffer) {
+    vector<string> nodeDataVector = utils::stringToVector(buffer,'|');
+    NODE_TYPE d_type = stoi(nodeDataVector[0]) == 1 ? INTERNAL_NODE : LEAF_NODE;
+    int d_keyNums = stoi(nodeDataVector[1]);
+    off_t d_self = stoll(nodeDataVector[2]);
+    off_t d_father = stoll(nodeDataVector[3]);
+
+    Node *node = new Node(d_type);
+    node->keyNums = d_keyNums;
+    node->self = d_self;
+    node->father = d_father;
+
+    vector<string> keysDataVector = utils::stringToVector(nodeDataVector[4],',');
+    for(int i = 0; i <d_keyNums;i++){
+        node->keys[i] = stoi(keysDataVector[i]);
     }
 
-    int fd = open("../my.ibd", O_RDWR | O_CREAT, 0664);
-    if (-1 == fd) {
-        perror("open");
-        printf("errno = %d\n", errno);
-    }
+    if(d_type == LEAF_NODE){
+        off_t d_rightBrother = stoll(nodeDataVector[5]);
+        node->rightBrother =d_rightBrother;
 
-    if (-1 == lseek(fd, offset, SEEK_SET)) {
-        perror("lseek");
-    }
-
-    NODE_TYPE d_type;
-    read(fd, &d_type, sizeof(NODE_TYPE));
-
-    off64_t d_self;
-    read(fd, &d_self, sizeof(off64_t));
-    Node *node = new Node(d_type, d_self);
-
-    read(fd, &node->keyNums, sizeof(int64_t));
-    read(fd, &node->father, sizeof(off64_t));
-
-    for (int i = 0; i < node->keyNums; i++) {
-        read(fd, &node->keys[i], sizeof(Key_t));
-    }
-    if (d_type == INTERNAL_NODE) {
-//        cout << "INTERNAL_NODE" << endl;
-
-        for (int i = 0; i < node->keyNums + 1; i++) {
-            read(fd, &node->children[i], sizeof(off64_t));
-        }
-    } else {
-//        cout << "LEAF_NODE" << endl;
-        read(fd, &node->rightBrother, sizeof(off64_t));
-        int64_t recordSize;
-        read(fd, &recordSize, sizeof(int64_t));
-
-        for (int i = 0; i < node->keyNums; i++) {
-            for (int j = 0; j < recordSize; j++) {
-                int64_t lineItem;
-                read(fd, &lineItem, sizeof(off64_t));
-                node->values[i].push_back(lineItem);
+        vector<string> valuesDataVector = utils::stringToVector(nodeDataVector[6],',');
+        for(int i=0;i<d_keyNums;i++) {
+            vector<string> recordDataVector = utils::stringToVector(valuesDataVector[i],'#');
+            for(string item:recordDataVector){
+                node->values[i].push_back(stoll(item));
             }
         }
+    }else{
+        off_t d_hasGrandChildren = stoi(nodeDataVector[5]);
+        node->hasGrandChildren = d_hasGrandChildren;
+        vector<string> childrenDataVector = utils::stringToVector(nodeDataVector[6],',');
+        int childrenNums = d_keyNums + 1;
+        for(int i = 0; i <childrenNums;i++){
+            node->keys[i] = stoi(childrenDataVector[i]);
+        }
     }
-
     return node;
-}
-
-int64_t Node::getNodeSpaceSize() {
-    if (this->type == INTERNAL_NODE) {
-        return sizeof(NODE_TYPE) + sizeof(int64_t) + sizeof(off64_t) + sizeof(off64_t) + (MAX_KEY) * sizeof(Key_t)
-               + (MAX_CHILDREN) * sizeof(off64_t);
-    } else {
-//        int64_t recordSize = this->values[0].size(); TODO:  此处先写死，后续是从table中传来
-        int64_t recordSize = 4;
-        return sizeof(NODE_TYPE) + sizeof(int64_t) + sizeof(off64_t) + sizeof(off64_t) + (MAX_KEY) * sizeof(Key_t)
-               + sizeof(off64_t) + sizeof(int64_t) + (MAX_VALUE) * recordSize * sizeof(int64_t);
-    }
 }

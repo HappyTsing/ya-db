@@ -7,33 +7,25 @@
 class BPT {
 
 public:
-    BPT();
-
-    off_t root;        // root 节点的偏移量
+    off64_t root;        // root 节点的偏移量
     int64_t nodeNums;  // 节点总数
     off_t nextNew;        // 下一个插入的节点偏移量
     Node *rootNode;    // 根节点缓存
+
+public:
+    BPT();
     virtual ~BPT();
-
-    bool insert(int key, Record value);  // data 是一条记录，此处先以
+    bool insert(int key, Record value);
     void printTree(Node *pNode);
-
     void serialize();
-
     static BPT *deSerialize();
 
 private:
-    Node *locateLeafNode(Key_t key);
-
-    Node *createNode(NODE_TYPE type);
-
-    bool flush(initializer_list<Node *> nodeList);
-    bool deleteObj(initializer_list<Node *> nodeList);
-
     bool InsertInternalNode(Node *pInternalNode, Key_t key, Node *pRightSon);
-
-    off_t getNewNodeOffset();
-
+    Node *locateLeafNode(Key_t key);
+    Node *createNode(Type_t type);
+    bool flush(initializer_list<Node *> nodeList);
+    bool deleteNodes(initializer_list<Node *> nodeList);
 
 };
 

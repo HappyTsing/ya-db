@@ -1,5 +1,4 @@
 #include "../include/BPT.h"
-#include "../include/Node.h"
 
 BPT::BPT() {}
 
@@ -31,12 +30,14 @@ bool BPT::insert(int key, Record value) {
         std::cout << "BPT::insert: 情况（1）：叶子节点未满，直接插入" << std::endl;
         // 直接插入
         pLeafNode->leafNodeInsert(key, value);
-        this->flush({pLeafNode});
+        flush({pLeafNode});
+        deleteNodes({pLeafNode}); // 判断是否是父节点，若是，则不删除
         return true;
     }
         // 情况（2）：叶子节点已满，首先将叶子节点分裂，然后选择将数据插入原结点或新结点；
     else {
-        std::cout << "BPT::insert: 情况（2）：叶子节点已满，首先将叶子节点分裂，然后选择将数据插入原结点或新结点；" << std::endl;
+        std::cout << "BPT::insert: 情况（2）：叶子节点已满，首先将叶子节点分裂，然后选择将数据插入原结点或新结点；"
+                  << std::endl;
 
         // 分裂叶节点
         Node *pNewLeafNode = createNode(LEAF_NODE);
@@ -71,12 +72,12 @@ bool BPT::insert(int key, Record value) {
             rootNode = pNewRootNode;
             // 更新文件
             flush({pOldLeafNode, pNewLeafNode, pNewRootNode});
-            deleteObj({pOldLeafNode, pNewLeafNode, pNewRootNode});
+            deleteNodes({pOldLeafNode, pNewLeafNode, pNewRootNode});
             return true;
         } else {
             Node *pFatherInternalNode = Node::deSerialize(FatherInternalNodeOffset);
             flush({pOldLeafNode});
-            deleteObj({pOldLeafNode});
+            deleteNodes({pOldLeafNode});
             std::cout << "情况（2.1）（2.2）抽象出递归函数处理。" << std::endl;
             // 情况（2.1）（2.2）抽象出递归函数处理。
             InsertInternalNode(pFatherInternalNode, splitKey, pNewLeafNode);
@@ -105,7 +106,7 @@ bool BPT::InsertInternalNode(Node *pFatherNode, Key_t key, Node *pRightSonNode) 
         pFatherNode->internalNodeInsert(key, pRightSonNode);
 //        rootNode = pFatherNode;
         flush({pFatherNode, pRightSonNode});
-        deleteObj({pFatherNode, pRightSonNode});
+        deleteNodes({pFatherNode, pRightSonNode});
         return true;
     }
         // 情况（2.3）父节点已满，分裂父节点
@@ -141,14 +142,14 @@ bool BPT::InsertInternalNode(Node *pFatherNode, Key_t key, Node *pRightSonNode) 
             pNewInternalNode->father = pNewRootNode->self;
             pNewRootNode->keyNums = 1;
             root = pNewRootNode->self;
-//            rootNode = pNewRootNode;
-            flush({pOldInternalNode, pNewInternalNode, pNewRootNode,pRightSonNode});
-            deleteObj({pOldInternalNode, pNewInternalNode, pNewRootNode,pRightSonNode});
+            rootNode = pNewRootNode;
+            flush({pOldInternalNode, pNewInternalNode, pNewRootNode, pRightSonNode});
+            deleteNodes({pOldInternalNode, pNewInternalNode, pNewRootNode, pRightSonNode});
             return true;
         } else {
             // 祖父节点存在，调用该递归函数，将分裂的新内部节点插入祖父节点中。
             Node *pGrandFatherNode = Node::deSerialize(pGrandFatherNodeOffset);
-            flush({pOldInternalNode,pNewInternalNode,pRightSonNode});
+            flush({pOldInternalNode, pNewInternalNode, pRightSonNode});
             return InsertInternalNode(pGrandFatherNode, upperKey, pNewInternalNode);
         }
 
@@ -161,30 +162,35 @@ bool BPT::InsertInternalNode(Node *pFatherNode, Key_t key, Node *pRightSonNode) 
  * @return 理论应该插入的叶子节点
  */
 Node *BPT::locateLeafNode(Key_t key) {
+    cout << "BPT::locateLeafNode：开始定位" << endl;
     int i;
-
-    off64_t pNodeOffset = this->root;
-
-
-    // 重新获取rootNode，由于传入的是新的
     Node *pNode = this->rootNode;
+
+    cout << "BPT::locateLeafNode：root："<< this->root << endl;
+    cout << "BPT::locateLeafNode：pNode.self："<< pNode->self  << endl;
+    cout << "BPT::locateLeafNode：keys[0]："<< this->rootNode->keys[0]  << endl;
+
     while (pNode != NULL) {
+        cout << "BPT::locateLeafNode：进入循环"<< endl;
         // 如果是叶子节点，则终止循环
         if (pNode->type == LEAF_NODE) {
             cout << "BPT::locateLeafNode：定位叶子节点成功" << endl;
             break;
         }
+        cout << "BPT::locateLeafNode：kekyNums: "<<pNode->keyNums<< endl;
         for (i = 0; i < pNode->keyNums; i++) {
             // 找到第一个键值大于key的位置，没找到，则是最右边那个子节点。
             if (key < pNode->keys[i]) {
                 break;
             }
         }
-        off64_t a = pNode->children[i];
-        delete pNode;
-        pNode = Node::deSerialize(a);
-    }
+        cout << "BPT::locateLeafNode：i: "<< i<< endl;
 
+        off64_t childrenOffset = pNode->children[i];
+        cout << "BPT::locateLeafNode：childrenOffset: "<< childrenOffset<< endl;
+        deleteNodes({pNode});
+        pNode = Node::deSerialize(childrenOffset);
+    }
     return pNode;
 
 }
@@ -202,7 +208,7 @@ void BPT::printTree(Node *pNode) {
     }
     pNode->printNode();
     for (int i = 0; i < pNode->keyNums + 1; i++) {
-        Node* children = Node::deSerialize(pNode->children[i]);
+        Node *children = Node::deSerialize(pNode->children[i]);
         printTree(children);
     }
 }
@@ -212,11 +218,11 @@ void BPT::printTree(Node *pNode) {
  * @param type
  * @return
  */
-Node *BPT::createNode(NODE_TYPE type) {
+Node *BPT::createNode(Type_t type) {
     Node *newNode = new Node(type, this->nextNew);
     cout << "BPT::createNode： 当前创建的新节点的偏移量： " << newNode->self << endl;
     int64_t spaceSize = newNode->getNodeSpaceSize();
-    cout << "BPT::createNode： 当前创建的新节点的空间大小： " <<spaceSize<< endl;
+    cout << "BPT::createNode： 当前创建的新节点的空间大小： " << spaceSize << endl;
     this->nodeNums += 1;
     this->nextNew += spaceSize;
     cout << "BPT::createNode： 更新节点总数为： " << this->nodeNums << endl;
@@ -227,61 +233,56 @@ Node *BPT::createNode(NODE_TYPE type) {
 void BPT::serialize() {
     int fd = open("../my.ibd", O_RDWR | O_CREAT, 0664);
     if (-1 == fd) {
-        perror("open");
+        perror("BPT::serialize open");
         printf("errno = %d\n", errno);
     }
 
     if (-1 == lseek(fd, 0, SEEK_SET)) {
         perror("lseek");
     }
-
-    write(fd, &this->root, sizeof(off64_t));
-    write(fd, &this->nextNew, sizeof(off64_t));
-    write(fd, &this->nodeNums, sizeof(int64_t));
-
-    int64_t unUsedNodeSpaceSize = 4096 - 2 * sizeof(off64_t) - sizeof(int64_t);
-    char *fillBuffer = (char *) malloc(unUsedNodeSpaceSize);
-    write(fd, fillBuffer, unUsedNodeSpaceSize);
-    free(fillBuffer);
-
+    auto *writeBuffer = (int64_t *) malloc(4096); //  todo #define metasize 4096?
+    int64_t p = 0;
+    writeBuffer[p++] = this->root;
+    writeBuffer[p++] = this->nextNew;
+    writeBuffer[p++] = this->nodeNums;
+    write(fd, writeBuffer, 4096);
     if (-1 == close(fd)) {
         perror("close");
     }
+    free(writeBuffer);
 }
 
 BPT *BPT::deSerialize() {
     //  检测文件是否存在
-    if(-1 == open("../my.ibd", O_RDWR | O_CREAT | O_EXCL, 0664)){
+    if (-1 == open("../my.ibd", O_RDWR | O_CREAT | O_EXCL, 0664)) {
         // 文件存在
-        if(17 == errno) {
+        if (17 == errno) {
+            cout << "BPT::DESerialize  文件存在" << std::endl;
             int fd = open("../my.ibd", O_RDWR | O_CREAT, 0664);
             if (-1 == fd) {
-                perror("open");
+                perror("BPT::deSerialize open");
                 printf("errno = %d\n", errno);
             }
             if (-1 == lseek(fd, 0, SEEK_SET)) {
                 perror("lseek");
             }
+            auto *readBuffer = (int64_t *) malloc(4096); //  todo #define metasize 4096?
+            read(fd, readBuffer, 4096);
             BPT *bpt = new BPT();
-            read(fd, &bpt->root, sizeof(off64_t));
-            read(fd, &bpt->nextNew, sizeof(off64_t));
-            read(fd, &bpt->nodeNums, sizeof(int64_t));
-
-//            std::cout << "BPT::deSerialize" << std::endl;
-//            std::cout << bpt->root << std::endl;
-//            std::cout << bpt->nodeNums << std::endl;
-
-            if (-1 == close(fd)) {
-                perror("close");
-            }
+            cout << readBuffer[0] << endl;
+            int64_t p = 0;
+            bpt->root = readBuffer[p++];
+            bpt->nextNew = readBuffer[p++];
+            bpt->nodeNums = readBuffer[p++];
             bpt->rootNode = Node::deSerialize(bpt->root);
+            cout << "rootNode 在这" << bpt->rootNode->self << endl;
             if (-1 == close(fd)) {
                 perror("close");
             }
+            free(readBuffer);
             return bpt;
-
         }
-    }else{
+    } else {
         std::cout << "文件不存在，创建根节点" << std::endl;
         // 文件不存在
         // 整棵树是空的，创建第一个节点
@@ -291,22 +292,24 @@ BPT *BPT::deSerialize() {
         bpt->nextNew = 4096;
         Node *genesisNode = bpt->createNode(LEAF_NODE);
         bpt->rootNode = genesisNode;
+        bpt->serialize();
         return bpt;
     }
-
 }
 
 bool BPT::flush(initializer_list<Node *> nodeList) {
     for (Node *node: nodeList) {
         node->serialize();
     }
+//        this->rootNode = Node::deSerialize(this->root); // update: 无需重新获取，rootNode 不会被 delete！
     this->serialize();
-    this->rootNode = Node::deSerialize(this->root);
 }
 
-bool BPT::deleteObj(initializer_list<Node *> nodeList) {
+bool BPT::deleteNodes(initializer_list<Node *> nodeList) {
     for (Node *node: nodeList) {
-        delete node;
+        if (node->self != this->root){
+            delete node;
+        }
     }
 }
 

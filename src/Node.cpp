@@ -1,15 +1,16 @@
 #include "../include/Node.h"
 
 
-Node::Node(NODE_TYPE type, off64_t selfOffset) {
+Node::Node(Type_t type, off64_t selfOffset) {
     this->type = type;
     this->self = selfOffset;
     this->keyNums = 0;
     this->father = INVALID;
     this->rightBrother = INVALID;
-    memset(children, INVALID, MAX_CHILDREN);
-    memset(this->keys, INVALID, MAX_KEY);
-    memset(this->values, INVALID, MAX_KEY);
+
+    memset(this->children, INVALID, MAX_CHILDREN * sizeof(off64_t));
+    memset(this->keys, INVALID, MAX_KEY * sizeof(int64_t));
+    memset(this->values, INVALID, MAX_VALUE * sizeof(Record));
 }
 
 Node::~Node() = default;
@@ -26,7 +27,7 @@ bool Node::leafNodeInsert(Key_t key, Record value) {
     if (keyNums >= MAX_KEY) {
         return false;
     }
-    int i, j;
+    int64_t i, j;
 
     // 比较通过比较索引大小，获取数据应该插入的位置
     for (i = 0; i < keyNums; i++) {
@@ -73,7 +74,7 @@ Key_t Node::leafNodeSplit(Node *pNewLeafNode) {
 
         // 原节点已迁移的 key、value 置为无效 INVALID
         keys[i] = INVALID;
-//        values[i] = INVALID;
+        values[i].clear();
         j++;
     }
 
@@ -171,8 +172,6 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
             Node *pchildren = Node::deSerialize(children[i]);
             pchildren->father = pNewInternalNode->self;
             children[i] = INVALID;
-//            children[i]->father = pNewInternalNode;  // 重新设置子节点的父亲
-//            children[i] = nullptr;
             pchildren->serialize(); //todo 在里面刷新？
             delete pchildren;
             j++;
@@ -213,10 +212,7 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
 
         Node *pchildren = Node::deSerialize(children[i]);
         pchildren->father = pNewInternalNode->self;
-//            children[i]->father = pNewInternalNode;  // 重新设置子节点的父亲
         children[i] = INVALID;
-//        children[i]->father = pNewInternalNode;
-//        children[i] = nullptr;
         pchildren->serialize(); //todo 在里面刷新？
         delete pchildren;
         j++;
@@ -240,7 +236,6 @@ void Node::printNode() {
                 std::cout << " " << j;
             }
             std::cout << ")";
-
         }
         std::cout << "]" << std::endl;
     } else {
@@ -254,84 +249,64 @@ void Node::printNode() {
 }
 
 /**
- * |type==LEAFNODE    | keyNums | self | father  | keys(array) | hasGrandChildren | values(array(vector)) |
+ * bufferArray:
  *
+ * | type==LEAFNODE     | self | keyNums | father  | keys[] | rightBrother | recordSize | values[][vector] |
  *
- * |type==INTERNALNODE| keyNums | self | father | keys(array)  | rightBrother  | children(array) |
+ * | type==INTERNALNODE | self | keyNums | father | keys[]  | children[]  |
  */
 void Node::serialize() {
     int fd = open("../my.ibd", O_RDWR | O_CREAT, 0664);
     if (-1 == fd) {
-        perror("open");
-        printf("NODE errno = %d\n", errno);
+        perror("Node::serialize() open");
+        printf("errno = %d\n", errno);
     }
     if (-1 == lseek(fd, this->self, SEEK_SET)) {
         perror("lseek");
     }
-    write(fd, &this->type, sizeof(NODE_TYPE));
-//    cout << "type " << sizeof(NODE_TYPE) << endl;
+    int64_t spaceSize = this->getNodeSpaceSize();
+    auto *writeBuffer = (int64_t *) malloc(spaceSize);
 
-    write(fd, &this->self, sizeof(off64_t));
-//    cout << "self " << sizeof(off64_t) << endl;
-
-    write(fd, &this->keyNums, sizeof(int64_t));
-//    cout << "keyNums " << sizeof(int64_t) << endl;
-
-    write(fd, &this->father, sizeof(off64_t));
-//    cout << "father " << sizeof(off64_t) << endl;
+    int64_t p = 0;
+    writeBuffer[p++] = this->type;
+    writeBuffer[p++] = this->self;
+    writeBuffer[p++] = this->keyNums;
+    writeBuffer[p++] = this->father;
 
     for (int i = 0; i < this->keyNums; i++) {
-        write(fd, &this->keys[i], sizeof(Key_t));
-//        cout << "keys " << sizeof(Key_t) << endl;
+        writeBuffer[p++] = this->keys[i];
     }
 
-    int64_t unUsedNodeSpaceSize;
     if (this->type == INTERNAL_NODE) {
         for (int i = 0; i < this->keyNums + 1; i++) {
-            write(fd, &this->children[i], sizeof(off64_t));
-//            cout << "children " << sizeof(off64_t) << endl;
+            writeBuffer[p++] = this->children[i];
         }
-
-        // 留出空余空间
-        unUsedNodeSpaceSize =
-                (MAX_KEY - this->keyNums) * sizeof(Key_t) + (MAX_CHILDREN - this->keyNums - 1) * sizeof(off64_t);
     } else {
-        write(fd, &this->rightBrother, sizeof(off64_t));
-//        cout << "rightBrother " << sizeof(off64_t) << endl;
-
-//        int64_t recordSize = this->values[0].size(); // todo 此处先写死
+        writeBuffer[p++] = this->rightBrother;
         int64_t recordSize = 4;
-        write(fd, &recordSize, sizeof(int64_t));
-//        cout << "recordSize " << recordSize << endl;
+        writeBuffer[p++] = recordSize;
 
         for (int i = 0; i < this->keyNums; i++) {
             for (int j = 0; j < this->values[i].size(); j++) {
-                write(fd, &this->values[i][j], sizeof(off64_t));
-//                cout << sizeof(off64_t) << endl;
+                writeBuffer[p++] = this->values[i][j];
             }
         }
-        unUsedNodeSpaceSize =
-                (MAX_KEY - this->keyNums) * sizeof(Key_t) + (MAX_VALUE - this->keyNums) * recordSize * sizeof(int64_t);
     }
-//    cout << "unUsedNodeSpaceSize " << unUsedNodeSpaceSize << endl;
-    char *fillBuffer = (char *) malloc(unUsedNodeSpaceSize);
-    write(fd, fillBuffer, unUsedNodeSpaceSize);
-    free(fillBuffer);
-
+    write(fd, writeBuffer, spaceSize);
     if (-1 == close(fd)) {
         perror("close");
     }
+    free(writeBuffer);
 }
 
-
 Node *Node::deSerialize(off64_t offset) {
-    if(offset == INVALID){
-        return NULL;
+    if (offset == INVALID) {
+        return nullptr;
     }
 
     int fd = open("../my.ibd", O_RDWR | O_CREAT, 0664);
     if (-1 == fd) {
-        perror("open");
+        perror("Node::deSerialize open");
         printf("errno = %d\n", errno);
     }
 
@@ -339,35 +314,44 @@ Node *Node::deSerialize(off64_t offset) {
         perror("lseek");
     }
 
-    NODE_TYPE d_type;
-    read(fd, &d_type, sizeof(NODE_TYPE));
-
-    off64_t d_self;
-    read(fd, &d_self, sizeof(off64_t));
-    Node *node = new Node(d_type, d_self);
-
-    read(fd, &node->keyNums, sizeof(int64_t));
-    read(fd, &node->father, sizeof(off64_t));
-
-    for (int i = 0; i < node->keyNums; i++) {
-        read(fd, &node->keys[i], sizeof(Key_t));
+    // 假设先读出的internal 节点
+    Node *node = new Node(INTERNAL_NODE, offset);
+    int64_t spaceSize = node->getNodeSpaceSize();
+    auto *readBuffer = (int64_t *) malloc(spaceSize);
+    read(fd, readBuffer, spaceSize);
+    // 拿出type
+    int64_t p = 0;
+    Type_t d_type = readBuffer[p++];
+    if (d_type == LEAF_NODE) {
+        free(readBuffer);
+        readBuffer = NULL;
+        lseek(fd, offset, SEEK_SET);
+        node->type = d_type;
+        spaceSize = node->getNodeSpaceSize();
+        readBuffer = (int64_t *) malloc(spaceSize);
+        read(fd, readBuffer, spaceSize);
     }
-    if (d_type == INTERNAL_NODE) {
-//        cout << "INTERNAL_NODE" << endl;
-
+    off64_t d_self = readBuffer[p++];
+//     说明读取的节点数据错误，返回空指针
+    if (d_self != offset) {
+        cout << "d_self != offset" << endl; // todo error handle
+        return nullptr;
+    }
+    node->keyNums = readBuffer[p++];
+    node->father = readBuffer[p++];
+    for (int i = 0; i < node->keyNums; i++) {
+        node->keys[i] = readBuffer[p++];
+    }
+    if (node->type == INTERNAL_NODE) {
         for (int i = 0; i < node->keyNums + 1; i++) {
-            read(fd, &node->children[i], sizeof(off64_t));
+            node->children[i] = readBuffer[p++];
         }
     } else {
-//        cout << "LEAF_NODE" << endl;
-        read(fd, &node->rightBrother, sizeof(off64_t));
-        int64_t recordSize;
-        read(fd, &recordSize, sizeof(int64_t));
-
+        node->rightBrother = readBuffer[p++];
+        int64_t recordSize = readBuffer[p++];
         for (int i = 0; i < node->keyNums; i++) {
             for (int j = 0; j < recordSize; j++) {
-                int64_t lineItem;
-                read(fd, &lineItem, sizeof(off64_t));
+                int64_t lineItem = readBuffer[p++];
                 node->values[i].push_back(lineItem);
             }
         }
@@ -375,17 +359,19 @@ Node *Node::deSerialize(off64_t offset) {
     if (-1 == close(fd)) {
         perror("close");
     }
+    free(readBuffer);
     return node;
 }
 
+
 int64_t Node::getNodeSpaceSize() {
     if (this->type == INTERNAL_NODE) {
-        return sizeof(NODE_TYPE) + sizeof(int64_t) + sizeof(off64_t) + sizeof(off64_t) + (MAX_KEY) * sizeof(Key_t)
-               + (MAX_CHILDREN) * sizeof(off64_t);
+        return sizeof(Type_t) + sizeof(int64_t) + sizeof(off64_t) + sizeof(off64_t) + MAX_KEY * sizeof(Key_t)
+               + MAX_CHILDREN * sizeof(off64_t);
     } else {
 //        int64_t recordSize = this->values[0].size(); TODO:  此处先写死，后续是从table中传来
         int64_t recordSize = 4;
-        return sizeof(NODE_TYPE) + sizeof(int64_t) + sizeof(off64_t) + sizeof(off64_t) + (MAX_KEY) * sizeof(Key_t)
-               + sizeof(off64_t) + sizeof(int64_t) + (MAX_VALUE) * recordSize * sizeof(int64_t);
+        return sizeof(Type_t) + sizeof(int64_t) + sizeof(off64_t) + sizeof(off64_t) + MAX_KEY * sizeof(Key_t)
+               + sizeof(off64_t) + sizeof(int64_t) + MAX_VALUE * recordSize * sizeof(int64_t);
     }
 }

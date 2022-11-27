@@ -5,7 +5,6 @@ BPT::BPT() {}
 BPT::~BPT() = default;
 
 /**
- *
  * 插入数据首先要找到理论上要插入的叶子结点，然后分两种情况：
  * (1) 叶子结点未满。直接在该结点中插入即可；
  * (2) 叶子结点已满，首先分裂叶子节点，然后选择将数据插入原结点或新结点；
@@ -18,9 +17,14 @@ BPT::~BPT() = default;
  * @param value 数据
  * @return 是否插入成功
  */
-bool BPT::insert(int key, Record value) {
+bool BPT::insert(Key_t key, Record value) {
 
-    // 1. 检查是否重复插入，调用Search
+    // 1. 检查是否重复插入，调用search
+    Record repeatRecord = search(key);
+    if(!repeatRecord.empty()){
+        cout << "Error: repeat insert" << endl;
+        return false;
+    }
 
     // 2. 定位理论应该插入的叶子节点
     Node *pLeafNode = locateLeafNode(key);
@@ -69,7 +73,7 @@ bool BPT::insert(int key, Record value) {
             pNewLeafNode->father = pNewRootNode->self;
             pNewRootNode->keyNums = 1;
             root = pNewRootNode->self;
-            rootNode = pNewRootNode;
+//            rootNode = pNewRootNode;
             // 更新文件
             flush({pOldLeafNode, pNewLeafNode, pNewRootNode});
             deleteNodes({pOldLeafNode, pNewLeafNode, pNewRootNode});
@@ -104,7 +108,11 @@ bool BPT::InsertInternalNode(Node *pFatherNode, Key_t key, Node *pRightSonNode) 
     if (pFatherNode->keyNums < MAX_KEY) {
         std::cout << "情况（2.2）父节点未满，直接插入；" << std::endl;
         pFatherNode->internalNodeInsert(key, pRightSonNode);
-//        rootNode = pFatherNode;
+        std::cout << "情况（2.2） root:"<< this->root << std::endl;
+        std::cout << "情况（2.2） pFatherNode->self:"<< pFatherNode->self << std::endl;
+//        if(this->root == pFatherNode->self){
+//            rootNode = pFatherNode;
+//        }
         flush({pFatherNode, pRightSonNode});
         deleteNodes({pFatherNode, pRightSonNode});
         return true;
@@ -134,15 +142,19 @@ bool BPT::InsertInternalNode(Node *pFatherNode, Key_t key, Node *pRightSonNode) 
 
         // 祖父节点不存在，即父节点就是根节点，此时新建父节点
         if (pGrandFatherNodeOffset == INVALID) {
+            std::cout << "情况（2.3）(1) 祖父节点不存在，需要新增根节点" << std::endl;
             Node *pNewRootNode = createNode(INTERNAL_NODE);
+
             pNewRootNode->keys[0] = upperKey;
             pNewRootNode->children[0] = pOldInternalNode->self;
             pNewRootNode->children[1] = pNewInternalNode->self;
+
             pOldInternalNode->father = pNewRootNode->self;
             pNewInternalNode->father = pNewRootNode->self;
             pNewRootNode->keyNums = 1;
+
             root = pNewRootNode->self;
-            rootNode = pNewRootNode;
+//            rootNode = pNewRootNode;
             flush({pOldInternalNode, pNewInternalNode, pNewRootNode, pRightSonNode});
             deleteNodes({pOldInternalNode, pNewInternalNode, pNewRootNode, pRightSonNode});
             return true;
@@ -170,6 +182,7 @@ Node *BPT::locateLeafNode(Key_t key) {
     cout << "BPT::locateLeafNode：pNode.self："<< pNode->self  << endl;
     cout << "BPT::locateLeafNode：keys[0]："<< this->rootNode->keys[0]  << endl;
 
+    // 第十次插入时，这个pNode未更新。 本质上是一位第九次分裂后，root未更新
     while (pNode != NULL) {
         cout << "BPT::locateLeafNode：进入循环"<< endl;
         // 如果是叶子节点，则终止循环
@@ -189,11 +202,76 @@ Node *BPT::locateLeafNode(Key_t key) {
         off64_t childrenOffset = pNode->children[i];
         cout << "BPT::locateLeafNode：childrenOffset: "<< childrenOffset<< endl;
         deleteNodes({pNode});
+        cout << "BPT::locateLeafNode： after deleteNodes({pNode}); "<< endl;
         pNode = Node::deSerialize(childrenOffset);
     }
     return pNode;
 
 }
+Record BPT::search(Key_t key){
+    vector<Record> recordList = search(key,key);
+    Record record = {};
+    if(recordList.size()==1){
+        record = recordList[0];
+    }
+    return record;
+}
+
+
+// search(1,100) 两个都是闭区间！
+vector<Record> BPT::search(Key_t start, Key_t end){
+    vector<Record> recordList = {};
+    int64_t  i;
+    Node* pNode = this->rootNode;
+    while(pNode != NULL){
+        if(pNode->type == LEAF_NODE){
+            break;
+        }
+        for(i = 0; i < pNode->keyNums; i++){
+            if(start < pNode->keys[i]){
+                break;
+            }
+        }
+        off64_t childrenOffset = pNode->children[i];
+        deleteNodes({pNode});
+        pNode = Node::deSerialize(childrenOffset);
+    }
+
+
+    // 仅根节点==叶节点时，pNode->keyNums == 0可能等于0
+    if(pNode == NULL || pNode->keyNums == 0){
+        return recordList;
+    }
+
+    bool searchRightBrother = false;
+    //  查找当前叶子节点中 key 大于等于 start的值
+    for (i = 0; i < pNode->keyNums; i++) {
+        if ((pNode->keys[i] >= start) && (pNode->keys[i] <= end)) {
+            recordList.push_back(pNode->values[i]);
+        }
+    }
+
+    // 当前节点的最后一个 key 小于 end，则需要查询其右兄弟节点
+    while(pNode->keys[MAX_KEY - 1] < end){
+        off64_t rightBrotherOffset = pNode->rightBrother;
+
+        // 已经到最右侧
+        if(rightBrotherOffset == INVALID){
+            break;
+        }
+        deleteNodes({pNode});
+        pNode = Node::deSerialize(rightBrotherOffset);
+        for (i = 0; i < pNode->keyNums; i++) {
+            if ((pNode->keys[i] >= start) && (pNode->keys[i] <= end)) {
+                recordList.push_back(pNode->values[i]);
+            }
+        }
+    }
+
+    return recordList;
+}
+
+
 
 /**
  * 打印当前节点及其子节点，传入 root 即可打印整棵树。
@@ -229,7 +307,7 @@ Node *BPT::createNode(Type_t type) {
     return newNode;
 }
 
-
+// bpt的反序列化是否在销毁时执行即可？
 void BPT::serialize() {
     int fd = open("../my.ibd", O_RDWR | O_CREAT, 0664);
     if (-1 == fd) {
@@ -275,6 +353,7 @@ BPT *BPT::deSerialize() {
             bpt->nextNew = readBuffer[p++];
             bpt->nodeNums = readBuffer[p++];
             bpt->rootNode = Node::deSerialize(bpt->root);
+            // todo 序列化
             cout << "rootNode 在这" << bpt->rootNode->self << endl;
             if (-1 == close(fd)) {
                 perror("close");
@@ -298,16 +377,23 @@ BPT *BPT::deSerialize() {
 }
 
 bool BPT::flush(initializer_list<Node *> nodeList) {
+    bool flushRootNode = false;
     for (Node *node: nodeList) {
+        if(node->self == this->root){
+            flushRootNode = true;
+        }
         node->serialize();
     }
-//        this->rootNode = Node::deSerialize(this->root); // update: 无需重新获取，rootNode 不会被 delete！
+    if(flushRootNode){
+        this->rootNode = Node::deSerialize(this->root); // update: 无需重新获取，rootNode 不会被 delete！
+    }
     this->serialize();
 }
 
 bool BPT::deleteNodes(initializer_list<Node *> nodeList) {
     for (Node *node: nodeList) {
         if (node->self != this->root){
+            node->printNode();
             delete node;
         }
     }

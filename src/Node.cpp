@@ -208,8 +208,6 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
     j = 0;
     for (int i = position + 1; i < MAX_CHILDREN; i++) {
         pNewInternalNode->children[j] = children[i];
-
-
         Node *pchildren = Node::deSerialize(children[i]);
         pchildren->father = pNewInternalNode->self;
         children[i] = INVALID;
@@ -239,7 +237,7 @@ void Node::printNode() {
         }
         std::cout << "]" << std::endl;
     } else {
-        std::cout << "internal node  ";
+        std::cout << "self  " << this->self;
         std::cout << "[ ";
         for (int i = 0; i < keyNums; i++) {
             std::cout << keys[i] << " ";

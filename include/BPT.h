@@ -8,17 +8,20 @@ class BPT {
 
 public:
     off64_t root;        // root 节点的偏移量
-    int64_t nodeNums;  // 节点总数
-    off_t nextNew;        // 下一个插入的节点偏移量
-    Node *rootNode;    // 根节点缓存
+    off64_t nextNew;        // 下一个插入的节点偏移量
+    Node *rootNode;       // 根节点
+    int64_t columnNums;
+    string tableName;
 
 public:
-    BPT();
+    BPT(off64_t root,off64_t nextNew,int64_t columnNums,string tableName);
     virtual ~BPT();
-    bool insert(int key, Record value);
+    bool insert(Key_t key, Record value);
+    vector<Record> search(Key_t start, Key_t end);
+    Record search(Key_t key);
     void printTree(Node *pNode);
-    void serialize();
-    static BPT *deSerialize();
+//    void serialize();
+//    static BPT *deSerialize(string path,vector<string>,string columnName);
 
 private:
     bool InsertInternalNode(Node *pInternalNode, Key_t key, Node *pRightSon);
@@ -26,7 +29,7 @@ private:
     Node *createNode(Type_t type);
     bool flush(initializer_list<Node *> nodeList);
     bool deleteNodes(initializer_list<Node *> nodeList);
-
+    Node *getNode(off64_t self);
 };
 
 

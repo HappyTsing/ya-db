@@ -25,6 +25,7 @@ class Node {
 
 public:
     Type_t type;
+    int64_t columnNums;     //列数
     int64_t keyNums;
     off64_t self;
     off64_t father;
@@ -32,16 +33,18 @@ public:
     Key_t keys[MAX_KEY];
     off64_t children[MAX_CHILDREN];
     Record values[MAX_KEY];  // key 的数量和 value 的数量相同
+    string tableName;
 
 public:
-    Node(Type_t type, off64_t selfOffset);
+    Node();
+    Node(Type_t type, off64_t selfOffset, int64_t columnNums, string tableName);
     virtual ~Node();
     bool leafNodeInsert(Key_t key, Record value);
     Key_t leafNodeSplit(Node *pNewLeafNode);
     bool internalNodeInsert(Key_t key, Node *pNewChildNode);
     Key_t internalNodeSplit(Node *pNewInternalNode, Key_t key);
     void serialize();
-    static Node *deSerialize(off64_t offset);
+    static Node *deSerialize(off64_t offset,string tableName);
     void printNode();
     int64_t getNodeSpaceSize();
 

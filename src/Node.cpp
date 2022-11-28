@@ -1,17 +1,31 @@
 #include "../include/Node.h"
 
-Node::Node(){};
-Node::Node(Type_t type, off64_t selfOffset, int64_t columnNums,string tableName) {
+// 初始化中间节点
+Node::Node(Type_t type, off64_t selfOffset, string tableName) {
+    this->type = type;
+    this->self = selfOffset;
+    this->keyNums = 0;
+    this->father = INVALID;
+    this->rightBrother = INVALID;
+    this->columnNums = INVALID;
+    this->tableName = tableName;
+    memset(this->children, INVALID, MAX_CHILDREN * sizeof(off64_t));
+    memset(this->keys, INVALID, MAX_KEY * sizeof(int64_t));
+    memset(this->values, INVALID, MAX_VALUE * sizeof(Record));
+};
+
+// 初始化叶子节点
+Node::Node(Type_t type, off64_t selfOffset, int64_t columnNums, string tableName) {
     this->type = type;
     this->self = selfOffset;
     this->keyNums = 0;
     this->father = INVALID;
     this->rightBrother = INVALID;
     this->columnNums = columnNums;
+    this->tableName = tableName;
     memset(this->children, INVALID, MAX_CHILDREN * sizeof(off64_t));
     memset(this->keys, INVALID, MAX_KEY * sizeof(int64_t));
     memset(this->values, INVALID, MAX_VALUE * sizeof(Record));
-    this->tableName = tableName;
 }
 
 Node::~Node() = default;
@@ -26,6 +40,7 @@ bool Node::leafNodeInsert(Key_t key, Record value) {
 
     // 如果叶子节点已满，直接返回失败
     if (keyNums >= MAX_KEY) {
+        std::cout << "[Node::leafNodeInsert ERROR] 叶子节点已满，不允许插入" << std::endl;
         return false;
     }
     int64_t i, j;
@@ -60,8 +75,9 @@ Key_t Node::leafNodeSplit(Node *pNewLeafNode) {
 
     // 如果叶子节点未满，不允许分裂，返回空指针
     if (keyNums != MAX_KEY) {
-        std::cout << "当叶子节点未满，不允许分裂！" << std::endl;
-        return INVALID; //TODO 排除异常
+        string msg = "[Node::leafNodeSplit ERROR] 叶子节点未满，不允许分裂";
+        cout << msg << endl;
+        throw msg;
     }
 
     int j = 0;
@@ -95,6 +111,7 @@ bool Node::internalNodeInsert(Key_t key, Node *pNewChildNode) {
 
     // 如果中间节点已满，直接返回失败
     if (keyNums >= MAX_KEY) {
+        std::cout << "[Node::internalNodeInsert ERROR] 中间节点已满，不允许插入" << std::endl;
         return false;
     }
     int i, j;
@@ -110,8 +127,8 @@ bool Node::internalNodeInsert(Key_t key, Node *pNewChildNode) {
         keys[j] = keys[j - 1];
     }
 
-    // 默认 孩子节点数 = keyNums + 1
-    // 指针后移，控住插入位置
+    // 默认孩子节点数 = keyNums + 1
+    // 指针后移，空出插入位置
     // 值得注意的是，插入位置永远不会是 children[0]，因此想要插入到 children[0] 时，应该直接显式调用：children[0] = xxx，而不是调用该方法。
     for (j = keyNums + 1; j > i + 1; j--) {
         children[j] = children[j - 1];
@@ -147,12 +164,14 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
 
     // 如果节点未满，不允许分裂，返回空指针
     if (keyNums != MAX_KEY) {
-        return -1; // TODO: throw exception
+        string msg = "[Node::internalNodeSplit ERROR] 中间节点未满，不允许分裂";
+        cout << msg << endl;
+        throw msg;
     }
 
     // 情况（1）upperKey = key
     if ((keys[ORDER / 2 - 1] < key) && (key < keys[ORDER / 2])) {
-        std::cout << "情况（2.2）(1)upperKey = key" << std::endl;
+        std::cout << "[Node::internalNodeSplit INFO]情况（1）key = upperKey" << std::endl;
         // key 移动到新节点
         // 例如 5 阶的树，MAX_KEY = 4，把后 2 个key 移到新节点
         // 例如 6 阶的树，MAX_KEY = 5，把后 2 个key，移到新节点
@@ -170,10 +189,10 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
         j = 1;
         for (int i = ORDER / 2 + 1; i < MAX_CHILDREN; i++) {
             pNewInternalNode->children[j] = children[i];
-            Node *pchildren = Node::deSerialize(children[i],this->tableName);
+            Node *pchildren = Node::deSerialize(children[i], this->tableName);
             pchildren->father = pNewInternalNode->self;
             children[i] = INVALID;
-            pchildren->serialize(); //todo 在里面刷新？
+            pchildren->serialize(); // 新建节点，持久化
             delete pchildren;
             j++;
         }
@@ -181,16 +200,17 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
         keyNums = ORDER / 2;
         return key;
     }
-    std::cout << "情况（2.2）(2)(3)upperKey != key" << std::endl;
     // 处理情况（2）（3），通过 position 可以巧妙的一起处理，而不用分开处理。
     // position 是数组下标，从0开始。
     int position;
     if (key < keys[ORDER / 2 - 1]) {
+        std::cout << "[Node::internalNodeSplit INFO] 情况（2）key < upperKey" << std::endl;
         // key在左节点
         // 例如 5 阶的树，MAX_KEY = 4，把后 2 个key 移到新节点
         // 例如 6 阶的树，MAX_KEY = 5，把后 2 个key 移到新节点
         position = ORDER / 2 - 1;
     } else { // key > keys[ORDER/2]
+        std::cout << "[Node::internalNodeSplit INFO] 情况（2）key > upperKey" << std::endl;
         // key 在右节点
         // 例如 5 阶的树，MAX_KEY = 4，把后 1 个key 移到新节点, position = 2
         // 例如 6 阶的树，MAX_KEY = 5，把后 1 个key 移到新节点
@@ -209,10 +229,10 @@ Key_t Node::internalNodeSplit(Node *pNewInternalNode, Key_t key) {
     j = 0;
     for (int i = position + 1; i < MAX_CHILDREN; i++) {
         pNewInternalNode->children[j] = children[i];
-        Node *pchildren = Node::deSerialize(children[i],this->tableName);
+        Node *pchildren = Node::deSerialize(children[i], this->tableName);
         pchildren->father = pNewInternalNode->self;
         children[i] = INVALID;
-        pchildren->serialize(); //todo 在里面刷新？
+        pchildren->serialize(); // 新建节点，持久化
         delete pchildren;
         j++;
     }
@@ -238,7 +258,7 @@ void Node::printNode() {
         }
         std::cout << "]" << std::endl;
     } else {
-        std::cout << "self  " << this->self;
+        std::cout << "internal node  ";
         std::cout << "[ ";
         for (int i = 0; i < keyNums; i++) {
             std::cout << keys[i] << " ";
@@ -248,29 +268,30 @@ void Node::printNode() {
 }
 
 /**
+ * 节点序列化到文件
+ *
  * bufferArray:
  *
  * | type==LEAFNODE  | columnNums | self | keyNums | father  | keys[] | rightBrother | values[][vector] |
  *
- * | type==INTERNALNODE | self | keyNums | father | keys[]  | children[]  |
+ * | type==INTERNALNODE           | self | keyNums | father | keys[]  | children[]  |
  */
 void Node::serialize() {
-    string tableFilePath = "../" + this->tableName;
+    string tableFilePath = "../" + tableName + ".table";
 //    cout << "Node::serialize tableFilePath = " << tableFilePath << std::endl;
     int fd = open(tableFilePath.c_str(), O_WRONLY | O_CREAT, 0664);
     if (-1 == fd) {
-        perror("Node::serialize() open");
-        printf("errno = %d\n", errno);
+        perror("[Node::serialize ERROR] open");
     }
     if (-1 == lseek(fd, this->self, SEEK_SET)) {
-        perror("lseek");
+        perror("[Node::serialize ERROR] lseek");
     }
     int64_t spaceSize = this->getNodeSpaceSize();
     auto *writeBuffer = (int64_t *) malloc(spaceSize);
 
     int64_t p = 0;
     writeBuffer[p++] = this->type;
-    if(this->type == LEAF_NODE){
+    if (this->type == LEAF_NODE) {
         writeBuffer[p++] = this->columnNums;
     }
     writeBuffer[p++] = this->self;
@@ -295,33 +316,34 @@ void Node::serialize() {
     }
     write(fd, writeBuffer, spaceSize);
     if (-1 == close(fd)) {
-        perror("close");
+        perror("[Node::serialize ERROR] close");
     }
     free(writeBuffer);
 }
 
-Node *Node::deSerialize(off64_t offset,string tableName) {
-//    cout<< "Node::deSerialize" << endl;
+/**
+ * 反序列化节点
+ * @param offset 节点存储在文件中的起始偏移量
+ * @param tableName 表名，本项目中每个表对应一个文件，二者名字相同
+ * @return 节点指针
+ */
+Node *Node::deSerialize(off64_t offset, string tableName) {
     if (offset == INVALID) {
         return nullptr;
     }
-    string tableFilePath = "../" + tableName;
+    string tableFilePath = "../" + tableName + ".table";
 
     int fd = open(tableFilePath.c_str(), O_RDONLY);
     if (-1 == fd) {
-        perror("Node::deSerialize open");
-        printf("errno = %d\n", errno);
+        perror("[Node::deSerialize ERROR] open");
     }
 
     if (-1 == lseek(fd, offset, SEEK_SET)) {
-        perror("lseek");
+        perror("[Node::deSerialize ERROR] lseek");
     }
 
     // 假设先读出的internal 节点
-    Node *node = new Node();
-    node->tableName = tableName;
-    node->self = offset;
-    node->type = INTERNAL_NODE;
+    Node *node = new Node(INTERNAL_NODE, offset, tableName);
     int64_t spaceSize = node->getNodeSpaceSize();
     auto *readBuffer = (int64_t *) malloc(spaceSize);
     read(fd, readBuffer, spaceSize);
@@ -329,11 +351,11 @@ Node *Node::deSerialize(off64_t offset,string tableName) {
     int64_t p = 0;
     Type_t d_type = readBuffer[p++];
     if (d_type == LEAF_NODE) {
+        node->type = LEAF_NODE;
         node->columnNums = readBuffer[p++];
         free(readBuffer);
         readBuffer = NULL;
         lseek(fd, offset, SEEK_SET);
-        node->type = d_type;
         spaceSize = node->getNodeSpaceSize();
         readBuffer = (int64_t *) malloc(spaceSize);
         read(fd, readBuffer, spaceSize);
@@ -342,8 +364,9 @@ Node *Node::deSerialize(off64_t offset,string tableName) {
     off64_t d_self = readBuffer[p++];
 //     说明读取的节点数据错误，返回空指针
     if (d_self != offset) {
-        cout << "d_self != offset" << endl; // todo error handle
-        return nullptr;
+        string msg = "[Node::deSerialize ERROR] d_self: " + to_string(d_self) + "!= offset: " + to_string(offset);
+        cout << msg << endl;
+        throw msg; // TODO 异常处理，d_self和offset应该始终相同，若不同，则说明程序出错（序列化或反序列化错误）
     }
 
     node->keyNums = readBuffer[p++];
@@ -366,15 +389,19 @@ Node *Node::deSerialize(off64_t offset,string tableName) {
     }
 
     if (-1 == close(fd)) {
-        perror("close");
+        perror("[Node::deSerialize ERROR] close");
     }
     free(readBuffer);
-//    cout<< "Node::deSerialize success" << endl;
-
     return node;
 }
 
-
+/**
+ * 获取节点的最大可能占用空间，中间节点的大小始终相同，叶子节点的大小根据列数 columnNums 的不同而不同。
+ * 本次设计是，在文件中为单个节点分配最大可能大小，虽然节点不一定会完全用完
+ * 例如：5 阶的树，中间节点的 MAX_KEY = 4，但某些时刻，只存储了 2 个 key，此时并没有将分配的空间完全用完。
+ * 这种设计是，空间换代码实现的便利（O(∩_∩)O哈哈~
+ * @return 节点大小（bytes）
+ */
 int64_t Node::getNodeSpaceSize() {
     if (this->type == INTERNAL_NODE) {
         return sizeof(Type_t) + sizeof(int64_t) + sizeof(off64_t) + sizeof(off64_t) + MAX_KEY * sizeof(Key_t)

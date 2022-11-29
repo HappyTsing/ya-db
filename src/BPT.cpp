@@ -231,7 +231,6 @@ vector<Record> BPT::searchByValue(int64_t columnValueStart, int64_t columnValueE
     if (pNode == NULL || pNode->keyNums == 0) {
         return recordList;
     }
-
     // 从左到右遍历所有叶子节点
     while (pNode != nullptr) {
         for (i = 0; i < pNode->keyNums; i++) {
@@ -240,7 +239,7 @@ vector<Record> BPT::searchByValue(int64_t columnValueStart, int64_t columnValueE
             }
         }
         // 找到所有数据，停止遍历
-        if(recordList.size() == (columnValueEnd - columnValueStart + 1)) {
+        if((columnValueStart == columnValueEnd) && recordList.size() == 1){
             break;
         }
         off64_t rightBrotherOffset = pNode->rightBrother;

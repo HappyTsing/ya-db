@@ -1,209 +1,371 @@
-#include <iostream>
 #include "../include/Table.h"
-#include "../include/BPT.h"
 
-
-
-// 初始化的时候新建一个文件夹。 TODO 抽象出一个CreateTable()的方法
-Table::Table(string tableName){
+Table::Table(string tableName, int64_t columnNums) {
     this->tableName = tableName;
-    this->columnNums = INVALID;
+    this->columnNums = columnNums;
     this->nextNew = INVALID;
-    this->bpt = NULL;
+    this->hasIndexColumns.assign(columnNums, false);
+    this->columnIndexRootOffsets.assign(columnNums, INVALID);
+    this->columnNames.assign(columnNums, "");
 }
 
-//bool Table::createIndex(string columnName) {
-//    int i;
-//    for(i=0;i<columnNames.size();i++) {
-//        if(columnName == columnNames[i]){
-//            break;
-//        }
-//    }
-//    off64_t indexOffset = this->columnIndexRootOffsets[i];
-//    this->bpt  = new BPT(indexOffset);
-//
-//    this->bpt->root;
-//
-//    return false;
-//}
-//
-//void Table::doCreateIndex(Node *pNode,BPT* bpt,int lineNumber) {
-//    if (pNode == NULL) {
-//        return;
-//    }
-//    if(pNode->type == LEAF_NODE){
-//        for(int i= 0;i<pNode->keyNums; i++){
-//            Record record = {};
-//            record.push_back(pNode->keys[i]);
-//            bpt->insert(pNode->values[i][lineNumber],record);
-//        }
-//    }
-//    for (int i = 0; i < pNode->keyNums + 1; i++) {
-//        Node *children = Node::deSerialize(pNode->children[i]);
-//        doCreateIndex(children,bpt,lineNumber);
-//    }
-//}
+Table::~Table() = default;
 
-bool Table::insertRecord(Record record){
+/**
+ * 创建表，将创建一个同名文件，里面存储索引和数据
+ * （1）id 作为主键索引，主键索引为聚集索引，叶子节点存储行数据
+ * （2）其余列（不可重复）可以为其创建非聚集索引，叶子节点仅存储行数据的 id 值，需二次进行主键索引获取数据
+ * @param tableName 表名
+ * @param columnNames 列名
+ * @return 表指针
+ */
+Table *Table::createTable(string tableName, initializer_list<string> columnNames) {
+    string tableFilePath = "../" + tableName + ".table";
+
+    if (-1 == open(tableFilePath.c_str(), O_RDWR | O_CREAT | O_EXCL, 0664)) {
+        // 表文件已经存在，说明表已经被创建过
+        if (17 == errno) {
+            string msg = "[Table::createTable ERROR] Table 「" + tableName + "」already exists, create table fail.";
+            cout << msg << endl;
+            throw msg;
+        }
+    }
+
+    Table *table = new Table(tableName, columnNames.size());
+    table->nextNew = 8192;
+    table->columnNames = columnNames; // initializer_list 可以直接赋值给 vector
+
+    // 建立主键索引的 B+ 树的 genesisNode
+    if (table->columnNames[0] == "id") { // TODO 默认传入的列中，第一列必须是 id，将其作为主键索引
+        // 更新表元数据
+        table->hasIndexColumns[0] = true;
+        // 表元数据共分配 8192 字节，在文件的最顶侧。因此第一个节点在文件中的起始偏移量为 8192
+        table->columnIndexRootOffsets[0] = 8192;
+        Node *genesisNode = new Node(LEAF_NODE, table->nextNew, table->columnNums, table->tableName);
+        // 更新下一个节点的起始偏移量
+        table->nextNew += genesisNode->getNodeSpaceSize();
+        // 节点持久化
+        genesisNode->serialize();
+    } else {
+        string msg = "[Table::createTable ERROR] First column' name must be 「id」.";
+        cout << msg << endl;
+        throw msg;
+    }
+    // 表元数据持久化
+    table->serialize();
+    return table;
+}
+
+/**
+ * 使用指定表
+ * @param tableName 表名
+ * @return 表指针
+ */
+Table *Table::useTable(string tableName) {
+    Table *table = nullptr;
+    string tableFilePath = "../" + tableName + ".table";
+    if (-1 == open(tableFilePath.c_str(), O_RDONLY)) {
+        // 表文件不存在，说明未创建表格
+        string msg = "[Table::useTable ERROR] use Table 「" + tableName + "」 fail, is it created？";
+        cout << msg << endl;
+        throw msg;
+    } else {
+        table = Table::deSerialize(tableName);
+    }
+    cout << "[Table::useTable INFO] use Table 「" + tableName + "」 success." << std::endl;
+    return table;
+}
+
+/**
+ * 创建索引
+ * @param columnName 列名，为指定列创建索引
+ * @return 是否创建成功
+ */
+bool Table::createIndex(string columnName) {
+    // 获取第几列，以 0 起始
+    int64_t columnNo = getColumnNo(columnName);
+
+    // 判断是否已经创建过索引
+    if (this->hasIndexColumns[columnNo]) {
+        cout << "[Table::createIndex INFO] column 「" + columnName + "」 index already created, create index fail."
+             << std::endl;
+        return false;
+    }
+
+    // 创建索引树的 genesisNode
+    this->hasIndexColumns[columnNo] = true;
+    this->columnIndexRootOffsets[columnNo] = this->nextNew;
+    Node *genesisNode = new Node(LEAF_NODE, this->nextNew, 1, this->tableName);
+    this->nextNew += genesisNode->getNodeSpaceSize();
+    genesisNode->serialize();
+    BPT *indexBPT = createBPT(this->columnIndexRootOffsets[columnNo]);
+    BPT *primaryKeyBPT = createBPT(this->columnIndexRootOffsets[0]);
+    doCreateIndex(primaryKeyBPT->rootNode, indexBPT, columnNo);
+
+    this->nextNew = indexBPT->nextNew;
+    this->columnIndexRootOffsets[columnNo] = indexBPT->root;
+    this->serialize();
+    cout << "[Table::createIndex INFO] column 「" + columnName + "」 create index success." << std::endl;
+    return true;
+}
+
+/**
+ * 遍历主键索引的所有叶子节点，将指定列的数据作为 key，对应的主键 id 作为 value，不断使用 insert() 创建非主键索引树
+ * @param pNode 主键索引树的 rootNode
+ * @param indexBPT 新建的非主键索引树
+ * @param lineNumber 列号，以 0 起始
+ */
+void Table::doCreateIndex(Node *pNode, BPT *indexBPT, int lineNumber) {
+    if (pNode == NULL) {
+        return;
+    }
+
+    if (pNode->type == LEAF_NODE) {
+        for (int i = 0; i < pNode->keyNums; i++) {
+            Record record = {};
+            record.push_back(pNode->keys[i]);
+            indexBPT->insert(pNode->values[i][lineNumber], record);
+        }
+    }
+
+    for (int i = 0; i < pNode->keyNums + 1; i++) {
+        Node *children = Node::deSerialize(pNode->children[i], this->tableName);
+        doCreateIndex(children, indexBPT, lineNumber);
+    }
+}
+
+/**
+ * 插入记录行，同步更新所有索引
+ */
+bool Table::insertRecord(Record record) {
+
     // 默认以第一列，id作为索引。
-    off64_t idRoot = this->columnIndexRootOffsets[0]; // 获取下标
     Key_t id = record[0];
-    this->bpt = createBPT(idRoot);
-    bpt->insert(id,record);
-    this->nextNew = bpt->nextNew;
-    this->columnIndexRootOffsets[0] = bpt->root;
+    BPT *primaryKeyBPT = createBPT(this->columnIndexRootOffsets[0]);
+    // 记录行写入主键索引的叶节点中
+    primaryKeyBPT->insert(id, record);
+    this->nextNew = primaryKeyBPT->nextNew;
+    this->columnIndexRootOffsets[0] = primaryKeyBPT->root;
+    delete primaryKeyBPT;
+
+    // 更新所有的索引树
+    for (int i = 1; i < this->columnNums; i++) {
+        // 判断该列是否存在索引，存在则更新
+        if (this->hasIndexColumns[i]) {
+//            cout << "[Table::insertRecord INFO] update column 「" + this->columnNames[i] + "」 index." << endl;
+            BPT *indexBPT = createBPT(this->columnIndexRootOffsets[i]);
+            vector<int64_t> indexRecord(1);
+            indexRecord[0] = record[0];
+            indexBPT->insert(record[i], indexRecord);
+            this->nextNew = indexBPT->nextNew;
+            delete indexBPT;
+        }
+    }
     this->serialize();
     return true;
 }
 
-BPT* Table::createBPT(off64_t root){
-    return new BPT(root,this->nextNew,this->columnNums,this->tableName);
-}
 
-Table* Table::createTable(string tableName, initializer_list<char> columnNames){
-    Table* table = new Table(tableName);
-    string tableFilePath = "../" + tableName;
+/**
+ * 对某一列进行范围搜索
+ * （1）主键索引: 建立 id 的 B+ 树，叶子节点即数据
+ * （2）非主键索引: 建立索引列的 B+ 树，叶子节点存放 id，通过 id 进行二次索引获取数据
+ * （3）无索引: 遍历所有叶子节点，匹配指定列的数据
+ * @param start
+ * @param end
+ * @param columnName
+ */
+void Table::selectRecord(Key_t start, Key_t end, string columnName) {
+    int64_t columnNo = getColumnNo(columnName);
+    BPT *primaryKeyBPT = createBPT(this->columnIndexRootOffsets[0]);
+    vector<Record> recordList;
 
-//    if (-1 == open(tableFilePath.c_str(), O_RDWR | O_CREAT | O_EXCL, 0664)) {
-//        // 文件存在
-//        if (17 == errno) {
-//            cout << "BPT::createTable  表已经存在" << std::endl;
-//            return table;
-//        }
-//    }
-
-    table->columnNums = columnNames.size();
-    table->nextNew = 8192;
-    table->columnNames = columnNames; // initializer_list 可以直接赋值给 vector
-    table->hasIndexColumns = {};
-    table->columnIndexRootOffsets = {};
-
-    // 主键
-    if(table->columnNames[0] == 'a'){
-        table->hasIndexColumns.insert(table->hasIndexColumns.begin(),true);
-        table->columnIndexRootOffsets.insert(table->columnIndexRootOffsets.begin(),8192);
-        Node *genesisNode = new Node(LEAF_NODE, table->nextNew,table->columnNums,table->tableName);
-        table->nextNew += genesisNode->getNodeSpaceSize();
-        genesisNode->serialize();
-    }else{
-        cout << "Table::createTable 首列必须是 id！" << endl;
-    }
-    table->serialize();
-    cout << "Table:: 序列化成功" << endl;
-    return table;
-}
-
-Table* Table::useTable(string tableName){
-    Table* table = nullptr;
-    string tableFilePath = "../" + tableName;
-    if (-1 == open(tableFilePath.c_str(), O_RDWR | O_CREAT | O_EXCL, 0664)) {
-        // 文件存在
-        if (17 == errno) {
-            cout << "BPT::DESerialize  文件存在" << std::endl;
+    // 存在索引
+    if (hasIndexColumns[columnNo]) {
+        Key_t startPrimaryKey, endPrimaryKey;
+        // 非主键索引
+        if (columnNo != 0) {
+            cout << "[Table::selectRecord INFO] 非主键索引" << std::endl;
+            BPT *indexBPT = createBPT(this->columnIndexRootOffsets[columnNo]);
+            vector<Record> primaryKeyList = indexBPT->search(start, end);
+            startPrimaryKey = primaryKeyList.front()[0];
+            endPrimaryKey = primaryKeyList.back()[0];
+            delete indexBPT;
+        } else {
+            cout << "[Table::selectRecord INFO] 主键索引" << std::endl;
+            startPrimaryKey = start;
+            endPrimaryKey = end;
         }
-        table = Table::deSerialize(tableName);
-        cout << "BPT::DESerialize  反序列化成功" << std::endl;
-
-    }else{
-        cout << "Table::useTable 读取数据文件失败，请确保数据表已经创建" << std::endl;
+        recordList = primaryKeyBPT->search(startPrimaryKey, endPrimaryKey);
+    } else {
+        cout << "[Table::selectRecord INFO] 无索引" << std::endl;
+        // 不存在索引
+        recordList = primaryKeyBPT->searchByValue(start, end, columnNo);
     }
-    return table;
+    showRecord(recordList);
 }
 
+void printSplit(int64_t columnNums) {
+    for (int i = 0; i < columnNums; i++) {
+        if (i == 0) {
+            cout << "+-------------+";
+        } else if (i == columnNums - 1) {
+            cout << "-------------+" << endl;
 
+        } else {
+            cout << "-------------+";
+        }
+    }
+}
+
+void printTableHeader(vector<string> columnNames) {
+    std::cout << "| ";
+    for (string columnName: columnNames) {
+        cout << columnName;
+        int spaceNum = 12 - columnName.length();
+        for (int j = 0; j < spaceNum; j++) {
+            cout << " ";
+        }
+        cout << "| ";
+    }
+    std::cout << std::endl;
+}
+
+void printRecord(Record record) {
+    std::cout << "| ";
+    for (int64_t column: record) {
+        cout << column;
+        int spaceNum = to_string(((int64_t) 100000000000 / column)).length();
+        for (int j = 0; j < spaceNum; j++) {
+            cout << " ";
+        }
+        cout << "| ";
+    }
+    std::cout << std::endl;
+}
+
+void Table::showRecord(vector<Record> recordList) {
+    if (recordList.empty()) {
+        cout << "[Table::showRecord INFO] record not found" << std::endl;
+        return;
+    }
+    printSplit(this->columnNums);
+    printTableHeader(this->columnNames);
+    printSplit(this->columnNums);
+    for (int i = 0; i < recordList.size(); i++) {
+        Record record = recordList[i];
+        printRecord(record);
+    }
+    printSplit(this->columnNums);
+}
+
+/**
+ * 序列化表格元数据，共分配 8192 字节
+ * 1042 | columnNums              | nextNew                 |
+ * 4096 |    columnName1(id)      |   columnName2           | ... |
+ * 1024 |    true                 |   false                 | ... |
+ * 2048 |    主键索引 root 偏移量    |   非主键索引偏移 root 量   | ... |
+ */
 void Table::serialize() {
-    string tableFilePath = "../" + tableName;
+//    cout <<"[Table::serialize INFO] serialize Table 「" + tableName + "」" << endl;
+    string tableFilePath = "../" + tableName + ".table";
 
     int fd = open(tableFilePath.c_str(), O_WRONLY | O_CREAT, 0664);
     if (-1 == fd) {
-        perror("Table::serialize open");
-        printf("errno = %d\n", errno);
+        perror("[Table::serialize ERROR] open");
     }
 
     if (-1 == lseek(fd, 0, SEEK_SET)) {
-        perror("lseek");
+        perror("[Table::serialize ERROR] lseek");
     }
-    auto *metaBuffer = (int64_t *) malloc(2048);
-    auto *columnNameBuffer = (char *) malloc(1024);
+    auto *metaBuffer = (int64_t *) malloc(1024);
+    char *columnNameBuffer; // 4096
     auto *hasIndexColumnBuffer = (bool *) malloc(1024);
-    auto *columnIndexRootBuffer = (int64_t *) malloc(4096);
+    auto *columnIndexRootBuffer = (int64_t *) malloc(2048);
 
     int64_t p = 0;
     metaBuffer[p++] = this->columnNums;
     metaBuffer[p++] = this->nextNew;
-    write(fd,metaBuffer,2048);
+    write(fd, metaBuffer, 1024);
 
-    p = 0;
-    for(char columnName : this->columnNames) {
-        columnNameBuffer[p++] = columnName;
+    string allColumnNames;
+    for (string columnName: this->columnNames) {
+        allColumnNames.append("#").append(columnName);
     }
+    columnNameBuffer = (char *) allColumnNames.c_str();
+    write(fd, columnNameBuffer, 4096);
 
-    write(fd,columnNameBuffer,1024);
-
-    p = 0;
-    for(bool hasIndex: this->hasIndexColumns){
-        hasIndexColumnBuffer[p++] = hasIndex;
+    for (p = 0; p < this->columnNums; p++) {
+        hasIndexColumnBuffer[p] = this->hasIndexColumns[p];
     }
-    write(fd,hasIndexColumnBuffer,1024);
+    write(fd, hasIndexColumnBuffer, 1024);
 
-    p = 0;
-    for(int64_t indexRootOffset: this->columnIndexRootOffsets){
-        columnIndexRootBuffer[p++] = indexRootOffset;
+    for (p = 0; p < this->columnNums; p++) {
+        columnIndexRootBuffer[p] = columnIndexRootOffsets[p];
     }
-    write(fd,columnIndexRootBuffer,4096);
+    write(fd, columnIndexRootBuffer, 2048);
 
     if (-1 == close(fd)) {
-        perror("close");
+        perror("[Table::serialize ERROR] close");
     }
     free(metaBuffer);
-    free(columnNameBuffer);
     free(hasIndexColumnBuffer);
     free(columnIndexRootBuffer);
 }
 
-
+/**
+ * 反序列化
+ * @param tableName 表名
+ * @return 表指针
+ */
 Table *Table::deSerialize(string tableName) {
+    cout << "[Table::serialize INFO] deSerialize Table 「" + tableName + "」" << endl;
     //  确保文件存在，即已经createTable。检测文件是否存在
-    string tableFilePath = "../" + tableName;
+    string tableFilePath = "../" + tableName + ".table";
 
     int fd = open(tableFilePath.c_str(), O_RDONLY);
     if (-1 == fd) {
-        perror("Table::deSerialize open");
-        printf("errno = %d\n", errno);
+        perror("[Table::deSerialize ERROR] open");
     }
     if (-1 == lseek(fd, 0, SEEK_SET)) {
-        perror("lseek");
+        perror("[Table::deSerialize ERROR] lseek");
     }
-    auto *metaBuffer = (int64_t *) malloc(2048);
-    auto *columnNameBuffer = (char *) malloc(1024);
+    auto *metaBuffer = (int64_t *) malloc(1024);
+    char *columnNameBuffer = (char *) malloc(4096);
     auto *hasIndexColumnBuffer = (bool *) malloc(1024);
-    auto *columnIndexRootBuffer = (int64_t *) malloc(4096);
+    auto *columnIndexRootBuffer = (int64_t *) malloc(2048);
 
-    Table* table = new Table(tableName);
     int64_t p = 0;
-    read(fd,metaBuffer,2048);
-    table->columnNums = metaBuffer[p++];
+    read(fd, metaBuffer, 1024);
+    int64_t columnNums = metaBuffer[p++];
+    Table *table = new Table(tableName, columnNums);
+
     table->nextNew = metaBuffer[p++];
 
-
-    read(fd,columnNameBuffer,1024);
-    for(p = 0; p < table->columnNums; p++) {
-        table->columnNames.push_back(columnNameBuffer[p]);
+    read(fd, columnNameBuffer, 4096);
+    p = 0;
+    char splitPattern = '#';
+    char *columnName = strtok(columnNameBuffer, &splitPattern);
+    while (columnName != nullptr) {
+        table->columnNames[p++] = columnName;
+        columnName = strtok(NULL, &splitPattern);
     }
 
-    read(fd,hasIndexColumnBuffer,1024);
-    for(p = 0; p < table->columnNums; p++) {
-        table->hasIndexColumns.push_back(hasIndexColumnBuffer[p]);
+    p = 0;
+    read(fd, hasIndexColumnBuffer, 1024);
+    for (int i = 0; i < table->columnNums; i++) {
+        table->hasIndexColumns[p++] = hasIndexColumnBuffer[i];
     }
 
-    read(fd,columnIndexRootBuffer,4096);
-    for(p = 0; p < table->columnNums; p++) {
-        table->columnIndexRootOffsets.push_back(columnIndexRootBuffer[p]);
+    p = 0;
+    read(fd, columnIndexRootBuffer, 2048);
+    for (int i = 0; i < table->columnNums; i++) {
+        table->columnIndexRootOffsets[p++] = columnIndexRootBuffer[i];
     }
 
 
     if (-1 == close(fd)) {
-        perror("close");
+        perror("[Table::deSerialize ERROR] close");
     }
     free(metaBuffer);
     free(columnNameBuffer);
@@ -213,4 +375,35 @@ Table *Table::deSerialize(string tableName) {
 
 }
 
-Table::~Table() = default;
+int64_t Table::getColumnNo(string columnName) {
+    int no = -1;
+    // 寻找索引是第几列
+    for (no = 0; no < columnNames.size(); no++) {
+        if (columnName == columnNames[no]) {
+            break;
+        }
+    }
+    if (no == -1) {
+        string msg = "[Table::getColumnNo ERROR] columnName 「" + columnName + "」not found.";
+        cout << msg << endl;
+        throw msg;
+    }
+    return no;
+}
+
+/**
+ * 创建 B+ 树实例
+ * 默认第一列为主键 id，因此如果创建主键索引的 B+ 树，则其叶子节点存储了若干个记录行 vector<int64_t> record(columnNums)
+ * 如果创建非主键索引的 B+ 树，则其叶子节点仅存储 id： vector<int64_t> record(1)，即该 vector 中仅有一个元素。
+ * @param root B+ 树根节点的文件便宜
+ */
+BPT *Table::createBPT(off64_t root) {
+
+    BPT *bpt = NULL;
+    if (root == this->columnIndexRootOffsets[0]) {
+        bpt = new BPT(root, this->nextNew, this->columnNums, this->tableName);
+    } else {
+        bpt = new BPT(root, this->nextNew, 1, this->tableName);
+    }
+    return bpt;
+}

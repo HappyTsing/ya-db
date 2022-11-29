@@ -1,45 +1,51 @@
 #ifndef YA_DB_TABLE_H
 #define YA_DB_TABLE_H
-#include <string>
-#include <initializer_list>
-#include <vector>
+
 #include "../include/BPT.h"
+
 using namespace std;
 typedef vector<int64_t> Record;
-class Table{
+
+class Table {
 
 public:
-    // 表名
-    string tableName;
-    // 列的数量
-    int64_t columnNums;
-    off64_t nextNew;        // 下一个插入的节点偏移量
-    vector<char> columnNames;
-    vector<bool> hasIndexColumns;
-    vector<off64_t> columnIndexRootOffsets;
-    BPT * bpt;  //  表的数据存储
 
-
-    // 记录的数量，默认为0，从1开始自增。将自动以这个作为索引key。
-    int recordNums_indexId;
+    string tableName;                              // 表名
+    int64_t columnNums;                            // 列的数量
+    off64_t nextNew;                               // 新建节点时，其在文件中的偏移量
+    vector<string> columnNames;                    // 列名
+    vector<bool> hasIndexColumns;                  // 当前列是否创建索引
+    vector<off64_t> columnIndexRootOffsets;        // 当前列对应的索引（即 B+ 树）的根节点的文件偏移量
+    int primaryKeyId;  // TODO 从 1 开始自增。当不存在 id 时，将使用其作为聚集索引。当前并未使用，默认第一列必须是 id。
 
 public:
-    // 默认列为 int64_t 类型
-    Table(string tableName);
+    Table(string tableName, int64_t columnNums);
+
     virtual ~Table();
-    static Table* createTable(string tableName, initializer_list<char> columnNames);
-    static Table* useTable(string tableName);
 
+    static Table *createTable(string tableName, initializer_list<string> columnNames);
 
-    bool createIndex(char columnName);                 // 创建索引，首先判断索引是否存在
-    bool insertRecord(Record record); // 判断输入的列的长度是否等于 columnNums；
-    vector<Record> selectRecords();  // 搜索
+    static Table *useTable(string tableName);
+
+    bool createIndex(string columnName);
+
+    bool insertRecord(Record record);
+
+    void selectRecord(Key_t start, Key_t end, string columnName);
 
     void serialize();
-    static Table* deSerialize(string);
+
+    static Table *deSerialize(string);
+
+    BPT *createBPT(off64_t root);
+
 
 private:
-    BPT* createBPT(off64_t root);
+    void doCreateIndex(Node *pNode, BPT *bpt, int lineNumber);
+
+    int64_t getColumnNo(string columnName);
+
+    void showRecord(vector<Record> recordList);
 };
 
 #endif //YA_DB_TABLE_H

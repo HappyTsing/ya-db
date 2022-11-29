@@ -23,7 +23,7 @@ public:
 
     virtual ~Table();
 
-    static Table *createTable(string tableName, initializer_list<string> columnNames);
+    static Table *createTable(string tableName, vector<string> columnNames);
 
     static Table *useTable(string tableName);
 

@@ -239,6 +239,10 @@ vector<Record> BPT::searchByValue(int64_t columnValueStart, int64_t columnValueE
                 recordList.push_back(pNode->values[i]);
             }
         }
+        // 找到所有数据，停止遍历
+        if(recordList.size() == (columnValueEnd - columnValueStart + 1)) {
+            break;
+        }
         off64_t rightBrotherOffset = pNode->rightBrother;
         deleteNodes({pNode});
         pNode = getNode(rightBrotherOffset);

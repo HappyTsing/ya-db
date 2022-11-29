@@ -277,7 +277,7 @@ void Node::printNode() {
  * | type==INTERNALNODE           | self | keyNums | father | keys[]  | children[]  |
  */
 void Node::serialize() {
-    string tableFilePath = "../" + tableName + ".table";
+    string tableFilePath = "../tables/" + tableName + ".table";
 //    cout << "Node::serialize tableFilePath = " << tableFilePath << std::endl;
     int fd = open(tableFilePath.c_str(), O_WRONLY | O_CREAT, 0664);
     if (-1 == fd) {
@@ -331,7 +331,7 @@ Node *Node::deSerialize(off64_t offset, string tableName) {
     if (offset == INVALID) {
         return nullptr;
     }
-    string tableFilePath = "../" + tableName + ".table";
+    string tableFilePath = "../tables/" + tableName + ".table";
 
     int fd = open(tableFilePath.c_str(), O_RDONLY);
     if (-1 == fd) {

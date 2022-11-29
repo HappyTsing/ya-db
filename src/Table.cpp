@@ -19,8 +19,8 @@ Table::~Table() = default;
  * @param columnNames 列名
  * @return 表指针
  */
-Table *Table::createTable(string tableName, initializer_list<string> columnNames) {
-    string tableFilePath = "../" + tableName + ".table";
+Table *Table::createTable(string tableName, vector<string> columnNames) {
+    string tableFilePath = "..tables/" + tableName + ".table";
 
     if (-1 == open(tableFilePath.c_str(), O_RDWR | O_CREAT | O_EXCL, 0664)) {
         // 表文件已经存在，说明表已经被创建过
@@ -33,7 +33,7 @@ Table *Table::createTable(string tableName, initializer_list<string> columnNames
 
     Table *table = new Table(tableName, columnNames.size());
     table->nextNew = 8192;
-    table->columnNames = columnNames; // initializer_list 可以直接赋值给 vector
+    table->columnNames = columnNames;
 
     // 建立主键索引的 B+ 树的 genesisNode
     if (table->columnNames[0] == "id") { // TODO 默认传入的列中，第一列必须是 id，将其作为主键索引
@@ -63,7 +63,7 @@ Table *Table::createTable(string tableName, initializer_list<string> columnNames
  */
 Table *Table::useTable(string tableName) {
     Table *table = nullptr;
-    string tableFilePath = "../" + tableName + ".table";
+    string tableFilePath = "..tables/" + tableName + ".table";
     if (-1 == open(tableFilePath.c_str(), O_RDONLY)) {
         // 表文件不存在，说明未创建表格
         string msg = "[Table::useTable ERROR] use Table 「" + tableName + "」 fail, is it created？";
@@ -152,7 +152,7 @@ bool Table::insertRecord(Record record) {
     for (int i = 1; i < this->columnNums; i++) {
         // 判断该列是否存在索引，存在则更新
         if (this->hasIndexColumns[i]) {
-//            cout << "[Table::insertRecord INFO] update column 「" + this->columnNames[i] + "」 index." << endl;
+            cout << "[Table::insertRecord INFO] update column 「" + this->columnNames[i] + "」 index." << endl;
             BPT *indexBPT = createBPT(this->columnIndexRootOffsets[i]);
             vector<int64_t> indexRecord(1);
             indexRecord[0] = record[0];
@@ -233,9 +233,12 @@ void printTableHeader(vector<string> columnNames) {
 
 void printRecord(Record record) {
     std::cout << "| ";
-    for (int64_t column: record) {
-        cout << column;
-        int spaceNum = to_string(((int64_t) 100000000000 / column)).length();
+    for (int64_t columnValue: record) {
+        cout << columnValue;
+        int spaceNum = to_string(((int64_t) 100000000000 / columnValue)).length();
+        if (columnValue == 1 || columnValue % 10 == 0) {
+            spaceNum -= 1;
+        }
         for (int j = 0; j < spaceNum; j++) {
             cout << " ";
         }
@@ -268,7 +271,7 @@ void Table::showRecord(vector<Record> recordList) {
  */
 void Table::serialize() {
 //    cout <<"[Table::serialize INFO] serialize Table 「" + tableName + "」" << endl;
-    string tableFilePath = "../" + tableName + ".table";
+    string tableFilePath = "../tables/" + tableName + ".table";
 
     int fd = open(tableFilePath.c_str(), O_WRONLY | O_CREAT, 0664);
     if (-1 == fd) {
@@ -321,7 +324,7 @@ void Table::serialize() {
 Table *Table::deSerialize(string tableName) {
     cout << "[Table::serialize INFO] deSerialize Table 「" + tableName + "」" << endl;
     //  确保文件存在，即已经createTable。检测文件是否存在
-    string tableFilePath = "../" + tableName + ".table";
+    string tableFilePath = "../tables/" + tableName + ".table";
 
     int fd = open(tableFilePath.c_str(), O_RDONLY);
     if (-1 == fd) {
@@ -376,14 +379,14 @@ Table *Table::deSerialize(string tableName) {
 }
 
 int64_t Table::getColumnNo(string columnName) {
-    int no = -1;
+    int no;
     // 寻找索引是第几列
-    for (no = 0; no < columnNames.size(); no++) {
+    for (no = 0; no < columnNums; no++) {
         if (columnName == columnNames[no]) {
             break;
         }
     }
-    if (no == -1) {
+    if (no == columnNums) {
         string msg = "[Table::getColumnNo ERROR] columnName 「" + columnName + "」not found.";
         cout << msg << endl;
         throw msg;

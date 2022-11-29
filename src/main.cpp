@@ -3,18 +3,18 @@
 #include <dirent.h>
 
 void printHelpMessage(){
-    cout << "**************************************************************************************************************************"<<endl<<endl
-         <<" 				                        Welcome to the ya_db" 	<< endl
-         <<" 			                            Author: happytsing" << endl << endl
+    cout <<"***************************************************************************************************************************"<<endl<<endl
+         <<"                                           Welcome to ya-db" 	<< endl
+         <<"                                           Author: happytsing" << endl << endl
          <<"***************************************************************************************************************************"<<endl
-         <<"  help                                                                                  print help message;"<<endl
-         <<"  exit                                                                                  exit program;"<<endl
-         <<"  SHOW TABLES            							                                    show tables;"<<endl
-         <<"  CREATE TABLE <table_name> <column_name_1> ... <column_name_n>   	                 	create table;"<<endl
-         <<"  INSERT INTO <table_name> <column_value_1> ... <column_value_n>                        insert record;"<<endl
-         <<"  CREATE INDEX ON <table_name> <column_name>	                 	                    create index;"<<endl
-         <<"  SELETE * FROM <table_name> WHERE <column_name> = {value} 				                search record;"<<endl
-         <<"  SELETE * FROM <table_name> WHERE <column_name> IN {minValue} {maxValue})		        search records between (min, max);"<<endl
+         <<"  help                                                                                  print help message"<<endl
+         <<"  exit                                                                                  exit program"<<endl
+         <<"  SHOW TABLES                                                                           show tables"<<endl
+         <<"  CREATE TABLE <table_name> <column_name_1> ... <column_name_n>                         create table"<<endl
+         <<"  INSERT INTO <table_name> <column_value_1> ... <column_value_n>                        insert record"<<endl
+         <<"  CREATE INDEX ON <table_name> <column_name>                                            create index"<<endl
+         <<"  SELETE * FROM <table_name> WHERE <column_name> = {value}                              search record"<<endl
+         <<"  SELETE * FROM <table_name> WHERE <column_name> IN {minValue} {maxValue})              search records between (min, max)"<<endl
          <<"***************************************************************************************************************************"<<endl;
 }
 

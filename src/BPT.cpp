@@ -116,8 +116,8 @@ bool BPT::InsertInternalNode(Node *pFatherNode, Key_t key, Node *pRightSonNode) 
         std::cout << "[BPT::InsertInternalNode INFO] 情况（2.2）父节点未满，直接插入" << std::endl;
         pFatherNode->internalNodeInsert(key, pRightSonNode);
 
-          // 当父节点为根节点时，更新 rootNode。为什么不会自动更新？因为 pFatherNode 是从文件中反序列化而来，二者并不是同一个对象。
-          // 该操作已在 flush() 中统一执行
+        // 当父节点为根节点时，更新 rootNode。为什么不会自动更新？因为 pFatherNode 是从文件中反序列化而来，二者并不是同一个对象。
+        // 该操作已在 flush() 中统一执行
 //        if(this->root == pFatherNode->self){
 //            rootNode = pFatherNode;
 //        }
@@ -232,41 +232,16 @@ vector<Record> BPT::searchByValue(int64_t columnValueStart, int64_t columnValueE
         return recordList;
     }
 
-    //  不断向右遍历，直到找到当前叶子节点的最大值，大于等于 columnValueStart 的叶子节点。比较的数据是指定列的值。
-    while (pNode->values[pNode->keyNums - 1][columnNo] < columnValueStart) {
-        off64_t rightBrotherOffset = pNode->rightBrother;
-        // 已经到最右侧，且没找到
-        if (rightBrotherOffset == INVALID) {
-            cout << "[BPT::searchByValue INFO] Record Not Found" << endl;
-            return recordList;
-        }
-        deleteNodes({pNode});
-        pNode = getNode(rightBrotherOffset);
-    }
-
-
-    // 当前 pNode 中已有满足查询条件的数据
-    for (i = 0; i < pNode->keyNums; i++) {
-        if ((columnValueStart <= pNode->keys[i]) && (pNode->keys[i] <= columnValueEnd)) {
-            recordList.push_back(pNode->values[i]);
-        }
-    }
-
-    // 当前节点的最大值 小于 columnValueEnd，则需要继续查询其右兄弟节点，不断循环直到不满足该条件，或已经到最右侧。
-    while (pNode->keys[MAX_KEY - 1] < columnValueEnd) {
-        off64_t rightBrotherOffset = pNode->rightBrother;
-
-        // 已经到最右侧
-        if (rightBrotherOffset == INVALID) {
-            break;
-        }
-        deleteNodes({pNode});
-        pNode = getNode(rightBrotherOffset);
+    // 从左到右遍历所有叶子节点
+    while (pNode != nullptr) {
         for (i = 0; i < pNode->keyNums; i++) {
-            if ((columnValueStart <= pNode->keys[i]) && (pNode->keys[i] <= columnValueEnd)) {
+            if ((columnValueStart <= pNode->values[i][columnNo]) && (pNode->values[i][columnNo] <= columnValueEnd)) {
                 recordList.push_back(pNode->values[i]);
             }
         }
+        off64_t rightBrotherOffset = pNode->rightBrother;
+        deleteNodes({pNode});
+        pNode = getNode(rightBrotherOffset);
     }
     return recordList;
 }

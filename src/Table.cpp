@@ -20,7 +20,7 @@ Table::~Table() = default;
  * @return 表指针
  */
 Table *Table::createTable(string tableName, vector<string> columnNames) {
-    string tableFilePath = "..tables/" + tableName + ".table";
+    string tableFilePath = "../tables/" + tableName + ".table";
 
     if (-1 == open(tableFilePath.c_str(), O_RDWR | O_CREAT | O_EXCL, 0664)) {
         // 表文件已经存在，说明表已经被创建过
@@ -63,7 +63,7 @@ Table *Table::createTable(string tableName, vector<string> columnNames) {
  */
 Table *Table::useTable(string tableName) {
     Table *table = nullptr;
-    string tableFilePath = "..tables/" + tableName + ".table";
+    string tableFilePath = "../tables/" + tableName + ".table";
     if (-1 == open(tableFilePath.c_str(), O_RDONLY)) {
         // 表文件不存在，说明未创建表格
         string msg = "[Table::useTable ERROR] use Table 「" + tableName + "」 fail, is it created？";
@@ -236,9 +236,24 @@ void printRecord(Record record) {
     for (int64_t columnValue: record) {
         cout << columnValue;
         int spaceNum = to_string(((int64_t) 100000000000 / columnValue)).length();
-        if (columnValue == 1 || columnValue % 10 == 0) {
+
+        bool flag = true;
+        for(int i = 0; i < to_string(columnValue).length(); i++) {
+            int j = stoi(to_string(columnValue).substr(i,i+1));
+            if(i == 0 && j == 1){
+                continue;
+            }
+            if(i!=0 && j==0){
+                continue;
+            }
+            flag = false;
+        }
+
+        if(flag){
             spaceNum -= 1;
         }
+
+
         for (int j = 0; j < spaceNum; j++) {
             cout << " ";
         }

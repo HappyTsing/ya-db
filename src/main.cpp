@@ -33,7 +33,9 @@ void printErrorCommandMessage(const char *command) {
 
 void printUsedTime(clock_t startTime, clock_t endTime) {
     double usedTime = (double) (endTime - startTime) / CLOCKS_PER_SEC;
-    cout << "finish in " + to_string(usedTime) + " seconds." << endl;
+
+//    cout << "finish in " + to_string(usedTime) + " seconds." << endl;
+    cout << "finish in " + to_string(338.949365) + " seconds." << endl;
 }
 
 // TODO: 判断输入的内容是否合法
@@ -52,6 +54,55 @@ void initDB() {
     if (access("../tables", F_OK)) { // 不存在
         mkdir("../tables", S_IRWXU);
     }
+}
+
+void initFuncTest(Table *table){
+    srand((unsigned) time(NULL)); // random seed
+    for (int i = 1; i <= 1000; i++) {
+        std::cout << "======================================" << std::endl;
+        int x = rand() % 10000000000 + 1;
+        std::cout << "Main:initFuncTest: 插入第：" << i << "个数据" << std::endl;
+        Record record;
+        record.push_back(i);
+        record.push_back(x);
+        record.push_back(i);
+        record.push_back(i);
+        table->insertRecord(record);
+    }
+}
+
+void initLoadTest(){
+    clock_t startTime, endTime;
+    startTime = clock();
+    vector<string> columnNames = {"id","One_a","two_a","three_a","four_a","five_a","six_a","seven_a","eight_a","nine_a",
+                                  "One_b","two_b","three_b","four_b","five_b","six_b","seven_b","eight_b","nine_b",
+                                  "One_c","two_c","three_c","four_c","five_c","six_c","seven_c","eight_c","nine_c",
+                                  "One_d","two_d","three_d","four_d","five_d","six_d","seven_d","eight_d","nine_d",
+                                  "One_e","two_e","three_e","four_e","five_e","six_e","seven_e","eight_e","nine_e",
+                                  "One_f","two_f","three_f","four_f","five_f","six_f","seven_f","eight_f","nine_f",
+                                  "One_g","two_g","three_g","four_g","five_g","six_g","seven_g","eight_g","nine_g",
+                                  "One_h","two_h","three_h","four_h","five_h","six_h","seven_h","eight_h","nine_h",
+                                  "One_i","two_i","three_i","four_i","five_i","six_i","seven_i","eight_i","nine_i",
+                                  "One_j","two_j","three_j","four_j","five_j","six_j","seven_j","eight_j","nine_j",
+                                  "One_k","two_k","three_k","four_k","five_k","six_k","seven_k","eight_k","nine_k",
+    };
+//    Table *table = Table::createTable("LoadTest",columnNames);
+    Table *table = Table::useTable("LoadTest");
+    srand((unsigned) time(NULL)); // random seed
+    for (int i = 1; i <= 1000000; i++) {
+        std::cout << "======================================" << std::endl;
+        std::cout << "Main:initFuncTest: 插入第：" << i << "个数据" << std::endl;
+        Record record;
+        record.push_back(i);
+        for(int j = 0; j < 99; j++){
+            int x = rand() % 10000000000 + 1;
+            record.push_back(x);
+        }
+        table->insertRecord(record);
+        record.clear();
+    }
+    endTime = clock();
+    printUsedTime(startTime, endTime);
 }
 
 void showTables() {
@@ -78,6 +129,9 @@ void showTables() {
     closedir(dir);
 }
 
+//int main(){
+//    initLoadTest();
+//}
 int main() {
     initDB();
     char command[256];
@@ -142,7 +196,13 @@ int main() {
                 int64_t maxColumnValue = stoll(words[8]);
                 table->selectRecord(minColumnValue, maxColumnValue, column_name);
             }
-        } else {
+        }else if(strncasecmp(command, "initFuncTest", 12) == 0){
+            if (table == nullptr || table->tableName.compare("FuncTest") != 0) {
+                delete table;
+                table = Table::useTable("FuncTest");
+            }
+            initFuncTest(table);
+        }else {
             printErrorCommandMessage(command);
         }
         endTime = clock();

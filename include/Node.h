@@ -14,7 +14,7 @@ typedef int64_t Key_t;
 typedef int64_t Type_t;
 
 /* B+ 树核心配置 */
-#define ORDER 5                           // B+ 树的阶数 m
+#define ORDER 15                           // B+ 树的阶数 m
 #define MAX_KEY (ORDER - 1)               // 关键字最多有 m - 1 个
 #define MAX_CHILDREN ORDER                // 内部节点至多包含 m 个孩子
 #define MAX_VALUE (ORDER - 1)             // 叶子节点最多有 m - 1个数据

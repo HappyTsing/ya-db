@@ -30,7 +30,7 @@ void testTable() {
     srand((unsigned) time(NULL)); // random seed
     for (int i = 1; i <= 10; i++) {
         std::cout << "======================================" << std::endl;
-        int x = rand() % 100 + 1;
+        int x = rand() % 10000000000 + 1;
 //        int x = i;
         std::cout << "Main:testBTP: 插入第：" << i << "个数据" << std::endl;
         Record record;

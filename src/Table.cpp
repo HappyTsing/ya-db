@@ -182,21 +182,25 @@ void Table::selectRecord(Key_t start, Key_t end, string columnName) {
 
     // 存在索引
     if (hasIndexColumns[columnNo]) {
-        Key_t startPrimaryKey, endPrimaryKey;
         // 非主键索引
         if (columnNo != 0) {
             cout << "[Table::selectRecord INFO] 非主键索引" << std::endl;
             BPT *indexBPT = createBPT(this->columnIndexRootOffsets[columnNo]);
             vector<Record> primaryKeyList = indexBPT->search(start, end);
-            startPrimaryKey = primaryKeyList.front()[0];
-            endPrimaryKey = primaryKeyList.back()[0];
+            for(Record recordId: primaryKeyList){
+                Key_t id = recordId[0];
+                cout << "[Table::selectRecord INFO] id" <<id << std::endl;
+                Record record = primaryKeyBPT->search(id);
+                if(!record.empty()){
+                    recordList.push_back(record);
+                }
+            }
             delete indexBPT;
         } else {
             cout << "[Table::selectRecord INFO] 主键索引" << std::endl;
-            startPrimaryKey = start;
-            endPrimaryKey = end;
+            recordList = primaryKeyBPT->search(start, end);
+
         }
-        recordList = primaryKeyBPT->search(startPrimaryKey, endPrimaryKey);
     } else {
         cout << "[Table::selectRecord INFO] 无索引" << std::endl;
         // 不存在索引
